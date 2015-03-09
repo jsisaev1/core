@@ -48,7 +48,7 @@ Storage.Status = {
 	ERROR: 1
 };
 Storage.prototype = {
-	_url: 'apps/files_external/storages',
+	_url: null,
 
 	/**
 	 * Storage id
@@ -65,20 +65,6 @@ Storage.prototype = {
 	mountPoint: '',
 
 	/**
-	 * Applicable users
-	 *
-	 * @type Array.<string>
-	 */
-	applicableUsers: [],
-
-	/**
-	 * Applicable groups
-	 *
-	 * @type Array.<string>
-	 */
-	applicableGroups: [],
-
-	/**
 	 * Backend class name
 	 *
 	 * @type string
@@ -91,13 +77,6 @@ Storage.prototype = {
 	 * @type Object.<string,object>
 	 */
 	backendOptions: {},
-
-	/**
-	 * Whether this storage is a personal external storage
-	 *
-	 * @type boolean
-	 */
-	isPersonal: null,
 
 	/**
 	 * Creates or saves the storage.
@@ -117,15 +96,7 @@ Storage.prototype = {
 		$.ajax({
 			type: method,
 			url: url,
-			data: {
-				id: this.id,
-				mountPoint: this.mountPoint,
-				backendClass: this.backendClass,
-				backendOptions: this.backendOptions,
-				applicableUsers: this.applicableUsers,
-				applicableGroups: this.applicableGroups,
-				isPersonal: !!this.isPersonal
-			},
+			data: this.getData(),
 			success: function(result) {
 				self.id = result.id;
 				if (_.isFunction(options.success)) {
@@ -134,6 +105,20 @@ Storage.prototype = {
 			},
 			error: options.error
 		});
+	},
+
+	/**
+	 * Returns the data from this object
+	 *
+	 * @return {Array} JSON array of the data
+	 */
+	getData: function() {
+		return {
+			id: this.id,
+			mountPoint: this.mountPoint,
+			backendClass: this.backendClass,
+			backendOptions: this.backendOptions
+		};
 	},
 
 	/**
@@ -152,9 +137,6 @@ Storage.prototype = {
 		$.ajax({
 			type: 'GET',
 			url: OC.generateUrl(this._url + '/{id}', {id: this.id}),
-			data: {
-				isPersonal: !!this.isPersonal
-			},
 			success: options.success,
 			error: options.error
 		});
@@ -178,9 +160,6 @@ Storage.prototype = {
 		$.ajax({
 			type: 'DELETE',
 			url: OC.generateUrl(this._url + '/{id}', {id: this.id}),
-			data: {
-				isPersonal: !!this.isPersonal
-			},
 			success: options.success,
 			error: options.error
 		});
@@ -202,22 +181,67 @@ Storage.prototype = {
 	}
 };
 
+var GlobalStorage = function(id) {
+	this.id = id;
+};
+GlobalStorage.prototype = _.extend({}, Storage.prototype, {
+	_url: 'apps/files_external/globalstorages',
+
+	/**
+	 * Applicable users
+	 *
+	 * @type Array.<string>
+	 */
+	applicableUsers: [],
+
+	/**
+	 * Applicable groups
+	 *
+	 * @type Array.<string>
+	 */
+	applicableGroups: [],
+
+	/**
+	 * Returns the data from this object
+	 *
+	 * @return {Array} JSON array of the data
+	 */
+	getData: function() {
+		var data = Storage.prototype.getData.apply(this, arguments);
+		return _.extend(data, {
+			applicableUsers: this.applicableUsers,
+			applicableGroups: this.applicableGroups,
+		});
+	}
+});
+var UserStorage = function(id) {
+	this.id = id;
+};
+UserStorage.prototype = _.extend({}, Storage.prototype, {
+	_url: 'apps/files_external/userstorages'
+});
+
 var MountConfig = {
+	isPersonal: false,
+
+	initialize: function($el) {
+		this.isPersonal = ($el.data('admin') !== true);
+	},
 
 	/**
 	 * Gets the storage model from the given row
 	 *
 	 * @param $tr row element
-	 * @param boolean isPersonal whether this is a personal mount point
 	 * @return {OCA.External.Storage} storage model instance
 	 */
-	getStorage: function($tr, isPersonal) {
+	getStorage: function($tr) {
 		var storageId = parseInt($tr.attr('data-id'), 10);
 		if (!storageId) {
 			// new entry
 			storageId = null;
 		}
-		var storage = new OCA.External.Storage(storageId);
+		var StorageClass = this.isPersonal ? OCA.External.UserStorage : OCA.External.GlobalStorage;
+		var storage = new StorageClass(storageId);
 		storage.mountPoint = $tr.find('.mountPoint input').val();
 		storage.backendClass = $tr.find('.backend').data('class');
 
@@ -253,7 +277,7 @@ var MountConfig = {
 		}
 
 		// gather selected users and groups
-		if (!isPersonal) {
+		if (!this.isPersonal) {
 			var groups = [];
 			var users = [];
 			var multiselect = getSelection($tr);
@@ -272,15 +296,37 @@ var MountConfig = {
 
 			storage.applicableUsers = users;
 			storage.applicableGroups = groups;
-		} else {
-			// equivalent of "all"
-			storage.applicableUsers = [];
-			storage.applicableGroups = [];
 		}
 
-		storage.isPersonal = isPersonal;
-
 		return storage;
+	},
+
+	/**
+	 * Deletes the storage from the given tr
+	 *
+	 * @param $tr storage row
+	 * @param Function callback callback to call after save
+	 */
+	deleteStorage: function($tr) {
+		var self = this;
+		var configId = $tr.data('id');
+		if (!_.isNumber(configId)) {
+			// deleting unsaved storage
+			$tr.remove();
+			return;
+		}
+		var StorageClass = this.isPersonal ? OCA.External.UserStorage : OCA.External.GlobalStorage;
+		var storage = new StorageClass(configId);
+		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
+
+		storage.destroy({
+			success: function() {
+				$tr.remove();
+			},
+			error: function() {
+				self.updateStatus($tr, Storage.Status.ERROR);
+			}
+		});
 	},
 
 	/**
@@ -290,16 +336,16 @@ var MountConfig = {
 	 * @param Function callback callback to call after save
 	 */
 	saveStorage:function($tr, callback) {
-		var isPersonal = $('#externalStorage').data('admin') !== true;
-		var storage = this.getStorage($tr, isPersonal);
+		var self = this;
+		var storage = this.getStorage($tr);
 		if (!storage.validate()) {
 			return false;
 		}
 
-		MountConfig.updateStatus($tr, Storage.Status.IN_PROGRESS);
+		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
 		storage.save({
 			success: function(result) {
-				MountConfig.updateStatus($tr, result.status);
+				self.updateStatus($tr, result.status);
 				$tr.attr('data-id', result.id);
 
 				if (_.isFunction(callback)) {
@@ -307,7 +353,7 @@ var MountConfig = {
 				}
 			},
 			error: function() {
-				MountConfig.updateStatus($tr, Storage.Status.ERROR);
+				self.updateStatus($tr, Storage.Status.ERROR);
 			}
 		});
 	},
@@ -319,19 +365,19 @@ var MountConfig = {
 	 * @return {boolean} success
 	 */
 	recheckStorage: function($tr) {
-		var isPersonal = $('#externalStorage').data('admin') !== true;
-		var storage = this.getStorage($tr, isPersonal);
+		var self = this;
+		var storage = this.getStorage($tr);
 		if (!storage.validate()) {
 			return false;
 		}
 
-		MountConfig.updateStatus($tr, Storage.Status.IN_PROGRESS);
+		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
 		storage.recheck({
 			success: function(result) {
-				MountConfig.updateStatus($tr, result.status);
+				self.updateStatus($tr, result.status);
 			},
 			error: function() {
-				MountConfig.updateStatus($tr, Storage.Status.ERROR);
+				self.updateStatus($tr, Storage.Status.ERROR);
 			}
 		});
 	},
@@ -360,6 +406,8 @@ var MountConfig = {
 
 $(document).ready(function() {
 	var $externalStorage = $('#externalStorage');
+
+	MountConfig.initialize($externalStorage);
 
 	//initialize hidden input field with list of users and groups
 	$externalStorage.find('tr:not(#addMountPoint)').each(function(i,tr) {
@@ -606,18 +654,7 @@ $(document).ready(function() {
 	});
 
 	$externalStorage.on('click', 'td.remove>img', function() {
-		var $tr = $(this).closest('tr');
-		var storage = new OCA.External.Storage($tr.data('id'));
-		MountConfig.updateStatus($tr, Storage.Status.IN_PROGRESS);
-
-		storage.destroy({
-			success: function() {
-				$tr.remove();
-			},
-			error: function() {
-				MountConfig.updateStatus($tr, Storage.Status.ERROR);
-			}
-		});
+		MountConfig.deleteStorage($(this).closest('tr'));
 	});
 
 	var $allowUserMounting = $('#allowUserMounting');
@@ -653,7 +690,8 @@ $(document).ready(function() {
 // export
 OCA.External = OCA.External || {};
 
-OCA.External.Storage = Storage;
+OCA.External.GlobalStorage = GlobalStorage;
+OCA.External.UserStorage = UserStorage;
 OCA.External.MountConfig = MountConfig;
 
 })();

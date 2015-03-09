@@ -31,7 +31,8 @@ $application->registerRoutes(
 	$this,
 	array(
 		'resources' => array(
-			'storages' => array('url' => '/storages')
+			'global_storages' => array('url' => '/globalstorages'),
+			'user_storages' => array('url' => '/userstorages'),
 		),
 		'routes' => array(
 			array(

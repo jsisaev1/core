@@ -21,17 +21,17 @@ use OC\AppFramework\Http;
 use \OCA\Files_external\Service\StoragesService;
 use \OCA\Files_external\NotFoundException;
 
-class StoragesController extends Controller {
+abstract class StoragesController extends Controller {
 
 	/**
 	 * @var \OCP\IL10N
 	 */
-	private $l10n;
+	protected $l10n;
 
 	/**
 	 * @var StoragesService
 	 */
-	private $service;
+	protected $service;
 
 	/**
 	 * @param string $appName
@@ -51,15 +51,13 @@ class StoragesController extends Controller {
 	}
 
 	/**
-	 * Validate storage
+	 * Validate storage config
 	 *
-	 * @param string $mountPoint storage mount point
-	 * @param string $backendClass backend class name
-	 * @param bool $isPersonal whether the mount point is personal
+	 * @param array $storage storage config
 	 *
 	 * @return DataResponse|null returns response in case of validation error
 	 */
-	private function validate($storage) {
+	protected function validate($storage) {
 		$mountPoint = \OC\Files\Filesystem::normalizePath($storage['mountPoint']);
 		if ($mountPoint === '' || $mountPoint === '/') {
 			return new DataResponse(
@@ -83,20 +81,6 @@ class StoragesController extends Controller {
 			);
 		}
 
-		if ($isPersonal) {
-			// Verify that the mount point applies for the current user
-			// Prevent non-admin users from mounting local storage and other disabled backends
-			$allowedBackends = \OC_Mount_Config::getPersonalBackends();
-			if (!isset($allowedBackends[$backendClass])) {
-				return new DataResponse(
-					array(
-						'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($backendClass))
-					),
-					Http::STATUS_UNPROCESSABLE_ENTITY
-				);
-			}
-		}
-
 		return null;
 	}
 
@@ -105,13 +89,12 @@ class StoragesController extends Controller {
 	 * Get an external storage entry.
 	 *
 	 * @param int $id storage id
-	 * @param bool $isPersonal
 	 *
 	 * @return DataResponse
 	 */
-	public function show($id, $isPersonal) {
+	public function show($id) {
 		try {
-			$storage = $this->service->getStorage($id, $isPersonal);
+			$storage = $this->service->getStorage($id);
 		} catch (NotFoundException $e) {
 			return new DataResponse(
 				[
@@ -128,117 +111,15 @@ class StoragesController extends Controller {
 	}
 
 	/**
-	 * Create an external storage entry.
-	 *
-	 * @param bool $isPersonal whether the mount point is personal
-	 * @param string $mountPoint storage mount point
-	 * @param string $backendClass backend class name
-	 * @param array $backendOptions backend-specific options
-	 * @param array $applicableUsers users for which to mount the storage
-	 * @param array $applicableGroups groups for which to mount the storage
-	 * @param int $priority priority
-	 *
-	 * @return DataResponse
-	 */
-	public function create(
-		$isPersonal,
-		$mountPoint,
-		$backendClass,
-		$backendOptions,
-		$applicableUsers,
-		$applicableGroups,
-		$priority
-	) {
-		$newStorage = [
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-			'applicableUsers' => $applicableUsers,
-			'applicableGroups' => $applicableGroups,
-			'priority' => $priority,
-		];
-
-		$response = $this->validate($newStorage);
-		if (!empty($response)) {
-			return $response;
-		}
-
-		$newStorage = $this->service->addStorage($newStorage, $isPersonal);
-
-		return new DataResponse(
-			$newStorage,
-			Http::STATUS_CREATED
-		);
-	}
-
-	/**
-	 * Update an external storage entry.
-	 *
-	 * @param int $id storage id
-	 * @param bool $isPersonal whether the mount point is personal
-	 * @param string $mountPoint storage mount point
-	 * @param string $backendClass backend class name
-	 * @param array $backendOptions backend-specific options
-	 * @param array $applicableUsers users for which to mount the storage
-	 * @param array $applicableGroups groups for which to mount the storage
-	 * @param int $priority priority
-	 *
-	 * @return DataResponse
-	 */
-	public function update(
-		$id,
-		$isPersonal,
-		$mountPoint,
-		$backendClass,
-		$backendOptions,
-		$applicableUsers,
-		$applicableGroups,
-		$priority
-	) {
-		$storage = [
-			'id' => $id,
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-			'applicableUsers' => $applicableUsers,
-			'applicableGroups' => $applicableGroups,
-			'priority' => $priority,
-		];
-
-		$response = $this->validate($storage);
-		if (!empty($response)) {
-			return $response;
-		}
-
-		try {
-			$storage = $this->service->updateStorage($storage, $isPersonal);
-		} catch (NotFoundException $e) {
-			return new DataResponse(
-				[
-					'message' => (string)$this->l10n->t('Storage with id "%i" not found', array($id))
-				],
-				Http::STATUS_NOT_FOUND
-			);
-		}
-
-		return new DataResponse(
-			$storage,
-			Http::STATUS_CREATED
-		);
-
-	}
-
-	/**
 	 * Deletes the storage with the given id.
 	 *
 	 * @param int $id storage id
-	 * @param bool $isPersonal whether the storage is personal
 	 *
 	 * @return DataResponse
 	 */
-	public function destroy($id, $isPersonal) {
+	public function destroy($id) {
 		try {
-			$this->service->removeStorage($id, $isPersonal);
+			$this->service->removeStorage($id);
 		} catch (NotFoundException $e) {
 			return new DataResponse(
 				[
@@ -252,3 +133,4 @@ class StoragesController extends Controller {
 	}
 
 }
+

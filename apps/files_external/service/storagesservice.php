@@ -14,28 +14,25 @@ use \OCP\IUserSession;
 /**
  * Service class to manage external storages
  */
-class StoragesService {
+abstract class StoragesService {
+
 	/**
-	 * @var IUserSession
+	 * Read legacy config data
+	 *
+	 * @return array list of mount configs
 	 */
-	private $userSession;
-
-	public function __construct(
-		IUserSession $userSession
-	) {
-		$this->userSession = $userSession;
+	protected function readLegacyConfig() {
+		// read global config
+		return \OC_Mount_Config::readData();
 	}
-
 
 	/**
 	 * Read the external storages config
 	 *
-	 * @param string $user user name or null for global config
-	 *
 	 * @return array map of storage id to storage config
 	 */
-	public function readConfig($user = null) {
-		$mountPoints = \OC_Mount_Config::readData($user);
+	protected function readConfig() {
+		$mountPoints = $this->readLegacyConfig();
 
 		/**
 		 * Here is the how the horribly messy mount point array looks like
@@ -50,7 +47,6 @@ class StoragesService {
 		 *     - "priority": storage priority
 		 *     - "backend": backend class name
 		 *     - "options": backend-specific options
-		 *     - "personal": true for personal storages
 		 */
 
 		// group by storage id
@@ -88,7 +84,9 @@ class StoragesService {
 					$currentStorage['storage_id'] = (int)$storageOptions['storage_id'];
 					$currentStorage['backendClass'] = $storageOptions['class'];
 					$currentStorage['backendOptions'] = $storageOptions['options'];
-					$currentStorage['priority'] = $storageOptions['priority'];
+					if (isset($storageOptions['priority'])) {
+						$currentStorage['priority'] = $storageOptions['priority'];
+					}
 
 					if (!isset($currentStorage['applicableUsers'])) {
 						$currentStorage['applicableUsers'] = [];
@@ -127,7 +125,7 @@ class StoragesService {
 	 * @param string $rootMountPoint root mount point to use
 	 * @param array $storageConfig storage config to set to the mount point
 	 */
-	private function addMountPoint(&$mountPoints, $mountType, $applicable, $rootMountPoint, $storageConfig) {
+	protected function addMountPoint(&$mountPoints, $mountType, $applicable, $rootMountPoint, $storageConfig) {
 		if (!isset($mountPoints[$mountType])) {
 			$mountPoints[$mountType] = [];
 		}
@@ -136,114 +134,54 @@ class StoragesService {
 			$mountPoints[$mountType][$applicable] = [];
 		}
 
-		$mountPoints[$mountType][$applicable][$rootMountPoint] = [
+		$options = [
 			'id' => $storageConfig['id'],
 			'class' => $storageConfig['backendClass'],
 			'options' => $storageConfig['backendOptions'],
-			'priority' => $storageConfig['priority'],
 		];
+
+		if (isset($storageConfig['priority'])) {
+			$options['priority'] = $storageConfig['priority'];
+		}
+
+		$mountPoints[$mountType][$applicable][$rootMountPoint] = $options;
 	}
 
 	/**
 	 * Write the storages to the configuration.
 	 *
-	 * @param string $user user or null for global config
 	 * @param array $storages map of storage id to storage config
 	 */
-	public function writeConfig($user = null, $storages) {
-		$mountTypesMap = [
-			'applicableUsers' => \OC_Mount_Config::MOUNT_TYPE_USER,
-			'applicableGroups' => \OC_Mount_Config::MOUNT_TYPE_GROUP,
-		];
-
-		// let the horror begin
-		$mountPoints = [];
-		foreach ($storages as $storageConfig) {
-			$mountPoint = $storageConfig['mountPoint'];
-			$storageConfig['backendOptions'] = \OC_Mount_Config::encryptPasswords($storageConfig['backendOptions']);
-
-			if (!empty($user)) {
-				// personal mount
-				$rootMountPoint = '/' . $user . '/files/' . ltrim($mountPoint, '/');
-			} else {
-				// system mount
-				$rootMountPoint = '/$user/files/' . ltrim($mountPoint, '/');
-			}
-
-			$applicableAdded = false;
-			foreach ($mountTypesMap as $fieldName => $mountType) {
-				foreach ($storageConfig[$fieldName] as $applicable) {
-					$this->addMountPoint(
-						$mountPoints,
-						$mountType,
-						$applicable,
-						$rootMountPoint,
-						$storageConfig
-					);
-					$applicableAdded = true;
-				}
-			}
-
-			// if neither "applicableGroups" or "applicableUsers" were set, use "all" user
-			if (!$applicableAdded) {
-				$this->addMountPoint(
-					$mountPoints,
-					\OC_Mount_Config::MOUNT_TYPE_USER,
-					'all',
-					$rootMountPoint,
-					$storageConfig
-				);
-			}
-		}
-
-		\OC_Mount_Config::writeData($user, $mountPoints);
+	protected function writeConfig($storages) {
+		// abstract
 	}
 
 	/**
 	 * Get a storage with status
 	 *
 	 * @param int $id
-	 * @param bool $isPersonal
 	 *
 	 * @return array
 	 */
-	public function getStorage($id, $isPersonal) {
-		$user = null;
-		if ($isPersonal) {
-			$user = $this->userSession->getUser()->getUID();
-		}
-
-		$allStorages = $this->readConfig($user);
+	public function getStorage($id) {
+		$allStorages = $this->readConfig();
 
 		if (!isset($allStorages[$id])) {
 			throw new NotFoundException('Storage with id "' . $id . '" not found');
 		}
 
-		$storage = $allStorages[$id];
-		$storage['status'] = \OC_Mount_Config::getBackendStatus(
-			$storage['backendClass'],
-			$storage['backendOptions'],
-			$isPersonal
-		);
-
-		return $storage;
+		return $allStorages[$id];
 	}
 
 	/**
 	 * Add new storage to the configuration
 	 *
 	 * @param array $newStorage storage attributes
-	 * @param bool $isPersonal true for personal storage, false otherwise
 	 *
 	 * @return array storage attributes, with added id
 	 */
-	public function addStorage($newStorage, $isPersonal) {
-		$user = null;
-		if ($isPersonal) {
-			$user = $this->userSession->getUser()->getUID();
-		}
-
-		$allStorages = $this->readConfig($user);
+	public function addStorage($newStorage) {
+		$allStorages = $this->readConfig();
 
 		// TODO: IMPORTANT: auto-create the oc_storages entry so
 		// we get a numeric_id
@@ -253,7 +191,7 @@ class StoragesService {
 		// add new storage
 		$allStorages[$configId] = $newStorage;
 
-		$this->writeConfig($user, $allStorages);
+		$this->writeConfig($allStorages);
 
 		// sort out hooks/events
 		/*
@@ -276,18 +214,12 @@ class StoragesService {
 	 * Update storage to the configuration
 	 *
 	 * @param array $updatedStorage storage attributes
-	 * @param bool $isPersonal true for personal storage, false otherwise
 	 *
 	 * @return array storage attributes
 	 * @throws NotFoundException
 	 */
-	public function updateStorage($updatedStorage, $isPersonal) {
-		$user = null;
-		if ($isPersonal) {
-			$user = $this->userSession->getUser()->getUID();
-		}
-
-		$allStorages = $this->readConfig($user);
+	public function updateStorage($updatedStorage) {
+		$allStorages = $this->readConfig();
 
 		$id = $updatedStorage['id'];
 		if (!isset($allStorages[$id])) {
@@ -298,26 +230,20 @@ class StoragesService {
 		$storage = array_merge($updatedStorage);
 		$allStorages[$id] = $storage;
 
-		$this->writeConfig($user, $allStorages);
+		$this->writeConfig($allStorages);
 
-		return $this->getStorage($id, $isPersonal);
+		return $this->getStorage($id);
 	}
 
 	/**
 	 * Delete the storage with the given id.
 	 *
 	 * @param int $id storage id
-	 * @param bool $isPersonal true for personal storage, false otherwise
 	 *
 	 * @throws NotFoundException
 	 */
-	public function removeStorage($id, $isPersonal) {
-		$user = null;
-		if ($isPersonal) {
-			$user = $this->userSession->getUser()->getUID();
-		}
-
-		$allStorages = $this->readConfig($user);
+	public function removeStorage($id) {
+		$allStorages = $this->readConfig();
 
 		if (!isset($allStorages[$id])) {
 			throw new NotFoundException('Storage with id "' . $id . '" not found');
@@ -325,7 +251,7 @@ class StoragesService {
 
 		unset($allStorages[$id]);
 
-		$this->writeConfig($user, $allStorages);
+		$this->writeConfig($allStorages);
 
 		// TODO: sort out hooks/events
 		/**
@@ -348,7 +274,7 @@ class StoragesService {
 	 *
 	 * @return int id
 	 */
-	private function generateNextId($allStorages) {
+	protected function generateNextId($allStorages) {
 		if (empty($allStorages)) {
 			return 1;
 		}
