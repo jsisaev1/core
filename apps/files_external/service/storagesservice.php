@@ -73,14 +73,19 @@ class StoragesService {
 
 					$relativeMountPath = $parts[2];
 
-					$storageId = (int)$storageOptions['storage_id'];
-					if (isset($storages[$storageId])) {
-						$currentStorage = $storages[$storageId];
+					$configId = (int)$storageOptions['id'];
+					if (isset($storages[$configId])) {
+						$currentStorage = $storages[$configId];
 					} else {
 						$currentStorage = [];
 						$currentStorage['mountPoint'] = $relativeMountPath;
 					}
 
+					$currentStorage['id'] = $configId;
+					// note: the storage ID is NOT the config ID, it's the id
+					// used in oc_storages. There's a 1-N relationship because
+					// of the "$user" variable that can be used in config options
+					$currentStorage['storage_id'] = (int)$storageOptions['storage_id'];
 					$currentStorage['backendClass'] = $storageOptions['class'];
 					$currentStorage['backendOptions'] = $storageOptions['options'];
 					$currentStorage['priority'] = $storageOptions['priority'];
@@ -100,7 +105,7 @@ class StoragesService {
 					} else if ($mountType === \OC_Mount_Config::MOUNT_TYPE_GROUP) {
 						$currentStorage['applicableGroups'][] = $applicable;
 					}
-					$storages[$storageId] = $currentStorage;
+					$storages[$configId] = $currentStorage;
 				}
 			}
 		}
@@ -112,6 +117,7 @@ class StoragesService {
 
 		return $storages;
 	}
+
 	/**
 	 * Add mount point into the messy mount point structure
 	 *
@@ -131,6 +137,7 @@ class StoragesService {
 		}
 
 		$mountPoints[$mountType][$applicable][$rootMountPoint] = [
+			'id' => $storageConfig['id'],
 			'class' => $storageConfig['backendClass'],
 			'options' => $storageConfig['backendOptions'],
 			'priority' => $storageConfig['priority'],
@@ -151,7 +158,7 @@ class StoragesService {
 
 		// let the horror begin
 		$mountPoints = [];
-		foreach ($storages as $storageId => $storageConfig) {
+		foreach ($storages as $storageConfig) {
 			$mountPoint = $storageConfig['mountPoint'];
 			$storageConfig['backendOptions'] = \OC_Mount_Config::encryptPasswords($storageConfig['backendOptions']);
 
@@ -240,9 +247,11 @@ class StoragesService {
 
 		// TODO: IMPORTANT: auto-create the oc_storages entry so
 		// we get a numeric_id
+		$configId = $this->generateNextId($allStorages);
+		$newStorage['id'] = $configId;
 
 		// add new storage
-		$allStorages[] = $newStorage;
+		$allStorages[$configId] = $newStorage;
 
 		$this->writeConfig($user, $allStorages);
 
@@ -259,8 +268,6 @@ class StoragesService {
 		);
 		 */
 
-		// TODO: get an ID
-		// return $this->getStorage($id, $isPersonal);
 		$newStorage['status'] = \OC_Mount_Config::STATUS_SUCCESS;
 		return $newStorage;
 	}
@@ -332,6 +339,24 @@ class StoragesService {
 			)
 		);
 		**/
+	}
+
+	/**
+	 * Generates a configuration id to use for a new configuration entry.
+	 *
+	 * @param array $allStorages array of all storage configs
+	 *
+	 * @return int id
+	 */
+	private function generateNextId($allStorages) {
+		if (empty($allStorages)) {
+			return 1;
+		}
+		// note: this will mess up with with concurrency,
+		// but so did the mount.json. This horribly hack
+		// will disappear once we move to DB tables to
+		// store the config
+		return max(array_keys($allStorages)) + 1;
 	}
 
 }

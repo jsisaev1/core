@@ -382,7 +382,8 @@ class OC_Mount_Config {
 					// Remove '/$user/files/' from mount point
 					$mountPoint = substr($mountPoint, 13);
 					$config = array(
-						'id' => (int) $mount['storage_id'],
+						'id' => (int) $mount['id'],
+						'storage_id' => (int) $mount['storage_id'],
 						'class' => $mount['class'],
 						'mountpoint' => $mountPoint,
 						'backend' => $backends[$mount['class']]['backend'],

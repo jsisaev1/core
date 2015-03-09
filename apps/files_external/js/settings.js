@@ -300,7 +300,7 @@ var MountConfig = {
 		storage.save({
 			success: function(result) {
 				MountConfig.updateStatus($tr, result.status);
-				$tr.attr('data-id') = result.id;
+				$tr.attr('data-id', result.id);
 
 				if (_.isFunction(callback)) {
 					callback(storage);
