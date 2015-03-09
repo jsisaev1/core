@@ -134,7 +134,7 @@ class GlobalStoragesController extends StoragesController {
 
 		return new DataResponse(
 			$storage,
-			Http::STATUS_CREATED
+			Http::STATUS_OK
 		);
 
 	}

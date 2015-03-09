@@ -347,7 +347,8 @@ class OC_Mount_Config {
 					$mountPoint = substr($mountPoint, 13);
 
 					$config = array(
-						'id' => (int) $mount['storage_id'],
+						'id' => (int) $mount['id'],
+						'storage_id' => (int) $mount['storage_id'],
 						'class' => $mount['class'],
 						'mountpoint' => $mountPoint,
 						'backend' => $backends[$mount['class']]['backend'],
@@ -426,6 +427,8 @@ class OC_Mount_Config {
 				}
 				$mount['options'] = self::decryptPasswords($mount['options']);
 				$personal[] = array(
+					'id' => (int) $mount['id'],
+					'storage_id' => (int) $mount['storage_id'],
 					'class' => $mount['class'],
 					// Remove '/uid/files/' from mount point
 					'mountpoint' => substr($mountPoint, strlen($uid) + 8),

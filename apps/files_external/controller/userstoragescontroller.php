@@ -59,7 +59,7 @@ class UserStoragesController extends StoragesController {
 		// Verify that the mount point applies for the current user
 		// Prevent non-admin users from mounting local storage and other disabled backends
 		$allowedBackends = \OC_Mount_Config::getPersonalBackends();
-		if (!isset($allowedBackends[$backendClass])) {
+		if (!isset($allowedBackends[$storage['backendClass']])) {
 			return new DataResponse(
 				array(
 					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($backendClass))
@@ -163,7 +163,7 @@ class UserStoragesController extends StoragesController {
 
 		return new DataResponse(
 			$storage,
-			Http::STATUS_CREATED
+			Http::STATUS_OK
 		);
 
 	}

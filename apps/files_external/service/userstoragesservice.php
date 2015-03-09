@@ -50,13 +50,13 @@ class UserStoragesService extends StoragesService {
 		$filteredStorages = [];
 		foreach ($storages as $configId => $storage) {
 			// filter out all bogus storages that aren't for the current user
-			if (!in_array($user, $storage['applicableUser'])) {
+			if (!in_array($user, $storage['applicableUsers'])) {
 				continue;
 			}
 
 			// strip out unneeded applicableUser fields
-			unset($storage['applicableUser']);
-			unset($storage['applicableGroup']);
+			unset($storage['applicableUsers']);
+			unset($storage['applicableGroups']);
 			$filteredStorages[$configId] = $storage;
 		}
 
