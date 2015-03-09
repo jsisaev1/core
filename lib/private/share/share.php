@@ -2368,4 +2368,16 @@ class Share extends \OC\Share\Constants {
 		return (int)\OCP\Config::getAppValue('core', 'shareapi_expire_after_n_days', '7');
 	}
 
+	/**
+	 * Get all share entries, including non-unique group items
+	 *
+	 * @param string $owner
+	 * @return array
+	 */
+	public static function getAllSharesForOwner($owner) {
+		$query = 'SELECT * FROM *PREFIX*share WHERE `uid_owner` = ?';
+		$result = \OC::$server->getDatabaseConnection()->executeQuery($query, [$owner]);
+		return $result->fetchAll();
+	}
+
 }
