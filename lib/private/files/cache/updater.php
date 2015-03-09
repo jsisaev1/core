@@ -43,6 +43,10 @@ class Updater {
 		$this->enabled = true;
 	}
 
+	public function getPropagator() {
+		return $this->propagator;
+	}
+
 	public function propagate($path, $time = null) {
 		if (Scanner::isPartialFile($path)) {
 			return;
