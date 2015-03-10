@@ -62,7 +62,7 @@ class UserStoragesController extends StoragesController {
 		if (!isset($allowedBackends[$storage['backendClass']])) {
 			return new DataResponse(
 				array(
-					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($backendClass))
+					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($storage['backendClass']))
 				),
 				Http::STATUS_UNPROCESSABLE_ENTITY
 			);
