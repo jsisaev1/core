@@ -17,7 +17,7 @@ use \OCP\IUserSession;
 use \OCP\IRequest;
 use \OCP\AppFramework\Http\DataResponse;
 use \OCP\AppFramework\Controller;
-use OC\AppFramework\Http;
+use \OCP\AppFramework\Http;
 use \OCA\Files_external\Service\StoragesService;
 use \OCA\Files_external\NotFoundException;
 
