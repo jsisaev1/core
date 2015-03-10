@@ -19,7 +19,7 @@
  * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-namespace Test\Files\Storage\Controller;
+namespace OCA\Files_external\Tests\Controller;
 
 use \OCA\Files_external\Controller\GlobalStoragesController;
 use \OCA\Files_external\Service\GlobalStoragesService;

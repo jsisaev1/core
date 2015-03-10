@@ -19,7 +19,7 @@
  * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
-namespace Test\Files\Storage;
+namespace OCA\Files_external\Tests\Service;
 
 use \OCA\Files_external\Service\UserStoragesService;
 use \OCA\Files_external\NotFoundException;
