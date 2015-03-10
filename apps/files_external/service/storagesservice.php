@@ -81,7 +81,9 @@ abstract class StoragesService {
 					// note: the storage ID is NOT the config ID, it's the id
 					// used in oc_storages. There's a 1-N relationship because
 					// of the "$user" variable that can be used in config options
-					$currentStorage['storage_id'] = (int)$storageOptions['storage_id'];
+					if (isset($storageOptions['storage_id'])) {
+						$currentStorage['storage_id'] = (int)$storageOptions['storage_id'];
+					}
 					$currentStorage['backendClass'] = $storageOptions['class'];
 					$currentStorage['backendOptions'] = $storageOptions['options'];
 					if (isset($storageOptions['priority'])) {

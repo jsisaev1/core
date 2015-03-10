@@ -85,9 +85,6 @@ class UserStoragesController extends StoragesController {
 	 * @param string $mountPoint storage mount point
 	 * @param string $backendClass backend class name
 	 * @param array $backendOptions backend-specific options
-	 * @param array $applicableUsers users for which to mount the storage
-	 * @param array $applicableGroups groups for which to mount the storage
-	 * @param int $priority priority
 	 *
 	 * @return DataResponse
 	 *
@@ -96,14 +93,12 @@ class UserStoragesController extends StoragesController {
 	public function create(
 		$mountPoint,
 		$backendClass,
-		$backendOptions,
-		$priority
+		$backendOptions
 	) {
 		$newStorage = [
 			'mountPoint' => $mountPoint,
 			'backendClass' => $backendClass,
 			'backendOptions' => $backendOptions,
-			'priority' => $priority,
 		];
 
 		$response = $this->validate($newStorage);
@@ -126,7 +121,6 @@ class UserStoragesController extends StoragesController {
 	 * @param string $mountPoint storage mount point
 	 * @param string $backendClass backend class name
 	 * @param array $backendOptions backend-specific options
-	 * @param int $priority priority
 	 *
 	 * @return DataResponse
 	 */
@@ -134,15 +128,13 @@ class UserStoragesController extends StoragesController {
 		$id,
 		$mountPoint,
 		$backendClass,
-		$backendOptions,
-		$priority
+		$backendOptions
 	) {
 		$storage = [
 			'id' => $id,
 			'mountPoint' => $mountPoint,
 			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-			'priority' => $priority,
+			'backendOptions' => $backendOptions
 		];
 
 		$response = $this->validate($storage);
@@ -169,12 +161,6 @@ class UserStoragesController extends StoragesController {
 	}
 
 	/**
-	 * Deletes the storage with the given id.
-	 *
-	 * @param int $id storage id
-	 *
-	 * @return DataResponse
-	 *
 	 * {@inheritdoc}
 	 * @NoAdminRequired
 	 */
