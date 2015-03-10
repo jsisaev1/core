@@ -10,6 +10,7 @@ namespace OCA\Files_external\Service;
 
 use \OCA\Files_external\NotFoundException;
 use \OCP\IUserSession;
+use \OC\Files\Filesystem;
 
 /**
  * Service class to manage external storages
@@ -185,8 +186,6 @@ abstract class StoragesService {
 	public function addStorage($newStorage) {
 		$allStorages = $this->readConfig();
 
-		// TODO: IMPORTANT: auto-create the oc_storages entry so
-		// we get a numeric_id
 		$configId = $this->generateNextId($allStorages);
 		$newStorage['id'] = $configId;
 
@@ -195,21 +194,55 @@ abstract class StoragesService {
 
 		$this->writeConfig($allStorages);
 
-		// sort out hooks/events
-		/*
-		\OC_Hook::emit(
-			\OC\Files\Filesystem::CLASSNAME,
-			\OC\Files\Filesystem::signal_create_mount,
-			array(
-				\OC\Files\Filesystem::signal_param_path => $relMountPoint,
-				\OC\Files\Filesystem::signal_param_mount_type => $mountType,
-				\OC\Files\Filesystem::signal_param_users => $applicable,
-			)
-		);
-		 */
+		$this->triggerHooks($newStorage, Filesystem::signal_create_mount);
 
 		$newStorage['status'] = \OC_Mount_Config::STATUS_SUCCESS;
 		return $newStorage;
+	}
+
+	/**
+	 * Triggers the given hook signal for all the applicables given
+	 *
+	 * @param string $signal signal
+	 * @param string $mountPoint hook mount pount param
+	 * @param string $mountType hook mount type param
+	 * @param array $applicableArray array of applicable users/groups for which to trigger the hook
+	 */
+	protected function triggerApplicableHooks($signal, $mountPoint, $mountType, $applicableArray) {
+		foreach ($applicableArray as $applicable) {
+			\OC_Hook::emit(
+				Filesystem::CLASSNAME,
+				$signal,
+				[
+					Filesystem::signal_param_path => $mountPoint,
+					Filesystem::signal_param_mount_type => $mountType,
+					Filesystem::signal_param_users => $applicable,
+				]
+			);
+		}
+	}
+
+	/**
+	 * Triggers $signal for all applicable users of the given
+	 * storage
+	 *
+	 * @param array $storage storage data
+	 * @param string $signal signal to trigger
+	 */
+	protected function triggerHooks($storage, $signal) {
+		// to be implemented by subclass
+	}
+
+	/**
+	 * Triggers signal_create_mount or signal_delete_mount to
+	 * accomodate for additions/deletions in applicableUsers
+	 * and applicableGroups fields.
+	 *
+	 * @param array $oldStorage old storage data
+	 * @param array $newStorage new storage data
+	 */
+	protected function triggerChangeHooks($oldStorage, $newStorage) {
+		// to be implemented by subclass
 	}
 
 	/**
@@ -228,11 +261,12 @@ abstract class StoragesService {
 			throw new NotFoundException('Storage with id "' . $id . '" not found');
 		}
 
-		$storage = $allStorages[$id];
-		$storage = array_merge($updatedStorage);
-		$allStorages[$id] = $storage;
+		$oldStorage = $allStorages[$id];
+		$allStorages[$id] = $updatedStorage;
 
 		$this->writeConfig($allStorages);
+
+		$this->triggerChangeHooks($oldStorage, $updatedStorage);
 
 		return $this->getStorage($id);
 	}
@@ -251,22 +285,12 @@ abstract class StoragesService {
 			throw new NotFoundException('Storage with id "' . $id . '" not found');
 		}
 
+		$deletedStorage = $allStorages[$id];
 		unset($allStorages[$id]);
 
 		$this->writeConfig($allStorages);
 
-		// TODO: sort out hooks/events
-		/**
-		\OC_Hook::emit(
-			\OC\Files\Filesystem::CLASSNAME,
-			\OC\Files\Filesystem::signal_delete_mount,
-			array(
-				\OC\Files\Filesystem::signal_param_path => $relMountPoints,
-				\OC\Files\Filesystem::signal_param_mount_type => $mountType,
-				\OC\Files\Filesystem::signal_param_users => $applicable,
-			)
-		);
-		**/
+		$this->triggerHooks($deletedStorage, Filesystem::signal_delete_mount);
 	}
 
 	/**

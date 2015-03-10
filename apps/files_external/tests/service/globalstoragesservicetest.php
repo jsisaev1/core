@@ -23,54 +23,103 @@ namespace OCA\Files_external\Tests\Service;
 
 use \OCA\Files_external\Service\GlobalStoragesService;
 use \OCA\Files_external\NotFoundException;
+use \OC\Files\Filesystem;
 
-class GlobalStoragesServiceTest extends \Test\TestCase {
-
-	/**
-	 * @var GlobalStoragesService
-	 */
-	private $service;
-
-	/**
-	 * Data directory
-	 *
-	 * @var string
-	 */
-	private $dataDir;
-
+class GlobalStoragesServiceTest extends StoragesServiceTest {
 	public function setUp() {
+		parent::setUp();
 		$this->service = new GlobalStoragesService();
-		$config = \OC::$server->getConfig();
-		$this->dataDir = $config->getSystemValue(
-			'datadirectory',
-			\OC::$SERVERROOT . '/data/'
-		);
-		\OC_Mount_Config::$skipTest = true;
 	}
 
 	public function tearDown() {
-		\OC_Mount_Config::$skipTest = false;
 		@unlink($this->dataDir . '/mount.json');
+		parent::tearDown();
 	}
 
-	private function makeTestStorageData() {
-		return array(
+	protected function makeTestStorageData() {
+		return [ 
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
+			'backendOptions' => [
 				'option1' => 'value1',
 				'option2' => 'value2',
 				'password' => 'testPassword',
-			),
+			],
 			'applicableUsers' => [],
 			'applicableGroups' => [],
 			'priority' => 15,
-		);
+		];
 	}
 
-	public function testAddStorage() {
-		$storage = $this->makeTestStorageData();
+	function storageDataProvider() {
+		return [
+			// all users
+			[
+				[
+					'mountPoint' => 'mountpoint',
+					'backendClass' => '\OC\Files\Storage\SMB',
+					'backendOptions' => [
+						'option1' => 'value1',
+						'option2' => 'value2',
+						'password' => 'testPassword',
+					],
+					'applicableUsers' => [],
+					'applicableGroups' => [],
+					'priority' => 15,
+				],
+			],
+			// some users
+			[
+				[
+					'mountPoint' => 'mountpoint',
+					'backendClass' => '\OC\Files\Storage\SMB',
+					'backendOptions' => [
+						'option1' => 'value1',
+						'option2' => 'value2',
+						'password' => 'testPassword',
+					],
+					'applicableUsers' => ['user1', 'user2'],
+					'applicableGroups' => [],
+					'priority' => 15,
+				],
+			],
+			// some groups
+			[
+				[
+					'mountPoint' => 'mountpoint',
+					'backendClass' => '\OC\Files\Storage\SMB',
+					'backendOptions' => [
+						'option1' => 'value1',
+						'option2' => 'value2',
+						'password' => 'testPassword',
+					],
+					'applicableUsers' => [],
+					'applicableGroups' => ['group1', 'group2'],
+					'priority' => 15,
+				],
+			],
+			// both users and groups
+			[
+				[
+					'mountPoint' => 'mountpoint',
+					'backendClass' => '\OC\Files\Storage\SMB',
+					'backendOptions' => [
+						'option1' => 'value1',
+						'option2' => 'value2',
+						'password' => 'testPassword',
+					],
+					'applicableUsers' => ['user1', 'user2'],
+					'applicableGroups' => ['group1', 'group2'],
+					'priority' => 15,
+				],
+			],
+		];
+	}
 
+	/**
+	 * @dataProvider storageDataProvider
+	 */
+	public function testAddStorage($storage) {
 		$newStorage = $this->service->addStorage($storage);
 
 		$this->assertEquals(1, $newStorage['id']);
@@ -88,93 +137,478 @@ class GlobalStoragesServiceTest extends \Test\TestCase {
 		$this->assertEquals(0, $newStorage['status']);
 
 		// next one gets id 2
-		$storage['applicableUsers'] = ['user1', 'user2'];
-		$storage['applicableGroups'] = ['group1', 'group2'];
 		$nextStorage = $this->service->addStorage($storage);
 		$this->assertEquals(2, $nextStorage['id']);
-		$this->assertEquals(['user1', 'user2'], $nextStorage['applicableUsers']);
-		$this->assertEquals(['group1', 'group2'], $nextStorage['applicableGroups']);
 	}
 
-	public function testUpdateStorage() {
-		$storage = array(
+	/**
+	 * @dataProvider storageDataProvider
+	 */
+	public function testUpdateStorage($updatedStorage) {
+		$storage = [
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
+			'backendOptions' => [
 				'option1' => 'value1',
 				'option2' => 'value2',
 				'password' => 'testPassword',
-			),
+			],
 			'applicableUsers' => [],
 			'applicableGroups' => [],
 			'priority' => 15,
-		);
+		];
 
 		$newStorage = $this->service->addStorage($storage);
 		$this->assertEquals(1, $newStorage['id']);
 
-		$newStorage['mountPoint'] = 'mountPoint2';
-		$newStorage['backendOptions']['password'] = 'anotherPassword';
-		$newStorage['applicableUsers'][] = 'user1';
-		$newStorage['applicableGroups'][] = 'group1';
+		$updatedStorage['id'] = 1;
+		$this->service->updateStorage($updatedStorage);
+		$newStorage = $this->service->getStorage(1);
 
-		$newStorage = $this->service->updateStorage($newStorage);
-
-		$this->assertEquals('mountPoint2', $newStorage['mountPoint']);
-		$this->assertEquals('anotherPassword', $newStorage['backendOptions']['password']);
-		$this->assertEquals(['user1'], $newStorage['applicableUsers']);
-		$this->assertEquals(['group1'], $newStorage['applicableGroups']);
-		$this->assertEquals(15, $newStorage['priority']);
+		$this->assertEquals($updatedStorage['mountPoint'], $newStorage['mountPoint']);
+		$this->assertEquals($updatedStorage['backendOptions']['password'], $newStorage['backendOptions']['password']);
+		$this->assertEquals($updatedStorage['applicableUsers'], $newStorage['applicableUsers']);
+		$this->assertEquals($updatedStorage['applicableGroups'], $newStorage['applicableGroups']);
+		$this->assertEquals($updatedStorage['priority'], $newStorage['priority']);
 		$this->assertEquals(1, $newStorage['id']);
 		$this->assertEquals(0, $newStorage['status']);
 	}
 
-	/**
-	 * @expectedException \OCA\Files_external\NotFoundException
-	 */
-	public function testNonExistingStorage() {
-		$storage = array(
-			'id' => '255',
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(),
-		);
-		$this->service->updateStorage($storage);
+	function hooksAddStorageDataProvider() {
+		return [
+			// applicable all
+			[
+				[],
+				[],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'all'
+					],
+				],
+			],
+			// single user
+			[
+				['user1'],
+				[],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+				],
+			],
+			// single group
+			[
+				[],
+				['group1'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1',
+					],
+				],
+			],
+			// multiple users
+			[
+				['user1', 'user2'],
+				[],
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+				],
+			],
+			// multiple groups
+			[
+				[],
+				['group1', 'group2'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1'
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+			// mixed groups and users 
+			[
+				['user1', 'user2'],
+				['group1', 'group2'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1'
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+		];
 	}
 
-	public function testDeleteStorage() {
-		$storage = array(
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
-				'password' => 'testPassword',
-			),
-		);
+	/**
+	 * @dataProvider hooksAddStorageDataProvider
+	 */
+	public function testHooksAddStorage($applicableUsers, $applicableGroups, $expectedCalls) {
+		$storage = $this->makeTestStorageData();
+		$storage['applicableUsers'] = $applicableUsers;
+		$storage['applicableGroups'] = $applicableGroups;
+		$this->service->addStorage($storage);
 
-		$newStorage = $this->service->addStorage($storage);
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertCount(count($expectedCalls), self::$hookCalls);
 
-		$newStorage = $this->service->removeStorage(1);
-
-		$caught = false;
-		try {
-			$this->service->getStorage(1);
-		} catch (NotFoundException $e) {
-			$caught = true;
+		foreach ($expectedCalls as $index => $call) {
+			$this->assertHookCall(
+				self::$hookCalls[$index],
+				$call[0],
+				$storage['mountPoint'],
+				$call[1],
+				$call[2]
+			);
 		}
+	}
 
-		$this->assertTrue($caught);
+	function hooksUpdateStorageDataProvider() {
+		return [
+			[
+				// nothing to multiple users and groups
+				[],
+				[],
+				['user1', 'user2'],
+				['group1', 'group2'],
+				// expected hook calls
+				[
+					// delete the "all entry"
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'all',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1'
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+			[
+				// adding a user and a group
+				['user1'],
+				['group1'],
+				['user1', 'user2'],
+				['group1', 'group2'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+			[
+				// removing a user and a group
+				['user1', 'user2'],
+				['group1', 'group2'],
+				['user1'],
+				['group1'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+			[
+				// removing all
+				['user1'],
+				['group1'],
+				[],
+				[],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1'
+					],
+					// create the "all" entry
+					[
+						Filesystem::signal_create_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'all'
+					],
+				],
+			],
+			[
+				// no changes
+				['user1'],
+				['group1'],
+				['user1'],
+				['group1'],
+				// no hook calls
+				[]
+			]
+		];
 	}
 
 	/**
-	 * @expectedException \OCA\Files_external\NotFoundException
+	 * @dataProvider hooksUpdateStorageDataProvider
 	 */
-	public function testDeleteUnexistingStorage() {
-		$this->service->removeStorage(255);
+	public function testHooksUpdateStorage(
+		$sourceApplicableUsers,
+		$sourceApplicableGroups,
+		$updatedApplicableUsers,
+		$updatedApplicableGroups,
+	   	$expectedCalls) {
+
+		$storage = $this->makeTestStorageData();
+		$storage['applicableUsers'] = $sourceApplicableUsers;
+		$storage['applicableGroups'] = $sourceApplicableGroups;
+		$storage = $this->service->addStorage($storage);
+
+		$storage['applicableUsers'] = $updatedApplicableUsers;
+		$storage['applicableGroups'] = $updatedApplicableGroups;
+
+		// reset calls
+		self::$hookCalls = [];
+
+		$this->service->updateStorage($storage);
+
+		$this->assertCount(count($expectedCalls), self::$hookCalls);
+
+		foreach ($expectedCalls as $index => $call) {
+			$this->assertHookCall(
+				self::$hookCalls[$index],
+				$call[0],
+				'mountpoint',
+				$call[1],
+				$call[2]
+			);
+		}
 	}
 
-	public function testHooks() {
-		// TODO
+	/**
+	 */
+	public function testHooksRenameMountPoint() {
+		$storage = $this->makeTestStorageData();
+		$storage['applicableUsers'] = ['user1', 'user2'];
+		$storage['applicableGroups'] = ['group1', 'group2'];
+		$storage = $this->service->addStorage($storage);
+
+		$storage['mountPoint'] = 'renamedMountpoint';
+
+		// reset calls
+		self::$hookCalls = [];
+
+		$this->service->updateStorage($storage);
+
+		$expectedCalls = [
+			// deletes old mount
+			[
+				Filesystem::signal_delete_mount,
+				'mountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_USER,
+				'user1',
+			],
+			[
+				Filesystem::signal_delete_mount,
+				'mountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_USER,
+				'user2',
+			],
+			[
+				Filesystem::signal_delete_mount,
+				'mountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_GROUP,
+				'group1',
+			],
+			[
+				Filesystem::signal_delete_mount,
+				'mountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_GROUP,
+				'group2',
+			],
+			// creates new one
+			[
+				Filesystem::signal_create_mount,
+				'renamedMountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_USER,
+				'user1',
+			],
+			[
+				Filesystem::signal_create_mount,
+				'renamedMountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_USER,
+				'user2',
+			],
+			[
+				Filesystem::signal_create_mount,
+				'renamedMountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_GROUP,
+				'group1',
+			],
+			[
+				Filesystem::signal_create_mount,
+				'renamedMountpoint',
+				\OC_Mount_Config::MOUNT_TYPE_GROUP,
+				'group2',
+			],
+		];
+
+		$this->assertCount(count($expectedCalls), self::$hookCalls);
+
+		foreach ($expectedCalls as $index => $call) {
+			$this->assertHookCall(
+				self::$hookCalls[$index],
+				$call[0],
+				$call[1],
+				$call[2],
+				$call[3]
+			);
+		}
+	}
+
+	function hooksDeleteStorageDataProvider() {
+		return [
+			[
+				['user1', 'user2'],
+				['group1', 'group2'],
+				// expected hook calls
+				[
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user1',
+					],
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'user2',
+					],
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group1'
+					],
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_GROUP,
+						'group2'
+					],
+				],
+			],
+			[
+				// deleting "all" entry
+				[],
+				[],
+				[
+					[
+						Filesystem::signal_delete_mount,
+						\OC_Mount_Config::MOUNT_TYPE_USER,
+						'all',
+					],
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider hooksDeleteStorageDataProvider
+	 */
+	public function testHooksDeleteStorage(
+		$sourceApplicableUsers,
+		$sourceApplicableGroups,
+	   	$expectedCalls) {
+
+		$storage = $this->makeTestStorageData();
+		$storage['applicableUsers'] = $sourceApplicableUsers;
+		$storage['applicableGroups'] = $sourceApplicableGroups;
+		$storage = $this->service->addStorage($storage);
+
+		// reset calls
+		self::$hookCalls = [];
+
+		$this->service->removeStorage($storage['id']);
+
+		$this->assertCount(count($expectedCalls), self::$hookCalls);
+
+		foreach ($expectedCalls as $index => $call) {
+			$this->assertHookCall(
+				self::$hookCalls[$index],
+				$call[0],
+				'mountpoint',
+				$call[1],
+				$call[2]
+			);
+		}
 	}
 
 	/**

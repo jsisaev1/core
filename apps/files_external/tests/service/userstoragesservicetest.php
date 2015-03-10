@@ -23,27 +23,13 @@ namespace OCA\Files_external\Tests\Service;
 
 use \OCA\Files_external\Service\UserStoragesService;
 use \OCA\Files_external\NotFoundException;
+use \OC\Files\Filesystem;
 
-class UserStoragesServiceTest extends \Test\TestCase {
-
-	/**
-	 * @var UserStoragesService
-	 */
-	private $service;
-
-	/**
-	 * Data directory
-	 *
-	 * @var string
-	 */
-	private $dataDir;
-
-	/**
-	 * @var string
-	 */
-	private $userId;
+class UserStoragesServiceTest extends StoragesServiceTest {
 
 	public function setUp() {
+		parent::setUp();
+
 		$this->userId = $this->getUniqueID('user_');
 
 		$this->user = new \OC\User\User($this->userId, null);
@@ -54,21 +40,14 @@ class UserStoragesServiceTest extends \Test\TestCase {
 			->will($this->returnValue($this->user));
 
 		$this->service = new UserStoragesService($userSession);
-		$config = \OC::$server->getConfig();
-		$this->dataDir = $config->getSystemValue(
-			'datadirectory',
-			\OC::$SERVERROOT . '/data/'
-		);
 
 		// create home folder
 		mkdir($this->dataDir . '/' . $this->userId . '/');
-
-		\OC_Mount_Config::$skipTest = true;
 	}
 
 	public function tearDown() {
-		\OC_Mount_Config::$skipTest = false;
 		@unlink($this->dataDir . '/' . $this->userId . '/mount.json');
+		parent::tearDown();
 	}
 
 	private function makeTestStorageData() {
@@ -98,6 +77,15 @@ class UserStoragesServiceTest extends \Test\TestCase {
 		$this->assertEquals(1, $newStorage['id']);
 		$this->assertEquals(0, $newStorage['status']);
 
+		// hook called once for user
+		$this->assertHookCall(
+			current(self::$hookCalls),
+			Filesystem::signal_create_mount,
+			$storage['mountPoint'],
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			$this->userId
+		);
+
 		// next one gets id 2
 		$nextStorage = $this->service->addStorage($storage);
 		$this->assertEquals(2, $nextStorage['id']);
@@ -117,65 +105,61 @@ class UserStoragesServiceTest extends \Test\TestCase {
 		$newStorage = $this->service->addStorage($storage);
 		$this->assertEquals(1, $newStorage['id']);
 
-		$newStorage['mountPoint'] = 'mountPoint2';
 		$newStorage['backendOptions']['password'] = 'anotherPassword';
+
+		self::$hookCalls = [];
 
 		$newStorage = $this->service->updateStorage($newStorage);
 
-		$this->assertEquals('mountPoint2', $newStorage['mountPoint']);
 		$this->assertEquals('anotherPassword', $newStorage['backendOptions']['password']);
 		$this->assertFalse(isset($newStorage['applicableUsers']));
 		$this->assertFalse(isset($newStorage['applicableGroups']));
 		$this->assertEquals(1, $newStorage['id']);
 		$this->assertEquals(0, $newStorage['status']);
-	}
 
-	/**
-	 * @expectedException \OCA\Files_external\NotFoundException
-	 */
-	public function testNonExistingStorage() {
-		$storage = array(
-			'id' => '255',
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(),
-		);
-		$this->service->updateStorage($storage);
+		// no hook calls
+		$this->assertEmpty(self::$hookCalls);
 	}
 
 	public function testDeleteStorage() {
-		$storage = array(
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
-				'password' => 'testPassword',
-			),
+		parent::testDeleteStorage();
+
+		// hook called once for user (first one was during test creation)
+		$this->assertHookCall(
+			self::$hookCalls[1],
+			Filesystem::signal_delete_mount,
+			'mountpoint',
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			$this->userId
 		);
-
-		$newStorage = $this->service->addStorage($storage);
-		$this->assertEquals(1, $newStorage['id']);
-
-		$newStorage = $this->service->removeStorage(1);
-
-		$caught = false;
-		try {
-			$this->service->getStorage(1);
-		} catch (NotFoundException $e) {
-			$caught = true;
-		}
-
-		$this->assertTrue($caught);
 	}
 
-	/**
-	 * @expectedException \OCA\Files_external\NotFoundException
-	 */
-	public function testDeleteUnexistingStorage() {
-		$this->service->removeStorage(255);
-	}
+	public function testHooksRenameMountPoint() {
+		$storage = $this->makeTestStorageData();
+		$storage = $this->service->addStorage($storage);
 
-	public function testHooks() {
-		// TODO
+		$storage['mountPoint'] = 'renamedMountpoint';
+
+		// reset calls
+		self::$hookCalls = [];
+
+		$this->service->updateStorage($storage);
+
+		// hook called twice
+		$this->assertHookCall(
+			self::$hookCalls[0],
+			Filesystem::signal_delete_mount,
+			'mountpoint',
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			$this->userId
+		);
+		$this->assertHookCall(
+			self::$hookCalls[1],
+			Filesystem::signal_create_mount,
+			'renamedMountpoint',
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			$this->userId
+		);
 	}
 
 	/**

@@ -10,6 +10,7 @@ namespace OCA\Files_external\Service;
 
 use \OCA\Files_external\NotFoundException;
 use \OCP\IUserSession;
+use \OC\Files\Filesystem;
 
 /**
  * Service class to manage user external storages
@@ -108,5 +109,40 @@ class UserStoragesService extends StoragesService {
 		);
 
 		return $storage;
+	}
+
+	/**
+	 * Triggers $signal for all applicable users of the given
+	 * storage
+	 *
+	 * @param array $storage storage data
+	 * @param string $signal signal to trigger
+	 */
+	protected function triggerHooks($storage, $signal) {
+		$user = $this->userSession->getUser()->getUID();
+
+		// trigger hook for the current user
+		$this->triggerApplicableHooks(
+			$signal,
+			$storage['mountPoint'],
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			[$user]
+		);
+	}
+
+	/**
+	 * Triggers signal_create_mount or signal_delete_mount to
+	 * accomodate for additions/deletions in applicableUsers
+	 * and applicableGroups fields.
+	 *
+	 * @param array $oldStorage old storage data
+	 * @param array $newStorage new storage data
+	 */
+	protected function triggerChangeHooks($oldStorage, $newStorage) {
+		// if mount point changed, it's like a deletion + creation
+		if ($oldStorage['mountPoint'] !== $newStorage['mountPoint']) {
+			$this->triggerHooks($oldStorage, Filesystem::signal_delete_mount);
+			$this->triggerHooks($newStorage, Filesystem::signal_create_mount);
+		}
 	}
 }
