@@ -8,32 +8,16 @@
 
 namespace OCA\Files_external\Service;
 
-use \OCA\Files_external\NotFoundException;
 use \OCP\IUserSession;
 use \OC\Files\Filesystem;
+
+use \OCA\Files_external\Lib\StorageConfig;
+use \OCA\Files_external\NotFoundException;
 
 /**
  * Service class to manage global external storages
  */
 class GlobalStoragesService extends StoragesService {
-	/**
-	 * Get a storage with status
-	 *
-	 * @param int $id
-	 *
-	 * @return array
-	 */
-	public function getStorage($id) {
-		$storage = parent::getStorage($id);
-
-		$storage['status'] = \OC_Mount_Config::getBackendStatus(
-			$storage['backendClass'],
-			$storage['backendOptions'],
-			false
-		);
-
-		return $storage;
-	}
 
 	/**
 	 * Write the storages to the configuration.
@@ -42,39 +26,44 @@ class GlobalStoragesService extends StoragesService {
 	 * @param array $storages map of storage id to storage config
 	 */
 	public function writeConfig($storages) {
-		$mountTypesMap = [
-			'applicableUsers' => \OC_Mount_Config::MOUNT_TYPE_USER,
-			'applicableGroups' => \OC_Mount_Config::MOUNT_TYPE_GROUP,
-		];
-
 		// let the horror begin
 		$mountPoints = [];
 		foreach ($storages as $storageConfig) {
-			$mountPoint = $storageConfig['mountPoint'];
-			$storageConfig['backendOptions'] = \OC_Mount_Config::encryptPasswords($storageConfig['backendOptions']);
+			$mountPoint = $storageConfig->getMountPoint();
+			$oldBackendOptions = $storageConfig->getBackendOptions();
+			$storageConfig->setBackendOptions(
+				\OC_Mount_Config::encryptPasswords(
+					$oldBackendOptions
+				)
+			);
 
 			// system mount
 			$rootMountPoint = '/$user/files/' . ltrim($mountPoint, '/');
 
-			$applicableAdded = false;
-			foreach ($mountTypesMap as $fieldName => $mountType) {
-				if (!isset($storageConfig[$fieldName])) {
-					continue;
-				}
-				foreach ($storageConfig[$fieldName] as $applicable) {
-					$this->addMountPoint(
-						$mountPoints,
-						$mountType,
-						$applicable,
-						$rootMountPoint,
-						$storageConfig
-					);
-					$applicableAdded = true;
-				}
+			$applicableUsers = $storageConfig->getApplicableUsers();
+			$applicableGroups = $storageConfig->getApplicableGroups();
+			foreach ($applicableUsers as $applicable) {
+				$this->addMountPoint(
+					$mountPoints,
+					\OC_Mount_Config::MOUNT_TYPE_USER,
+					$applicable,
+					$rootMountPoint,
+					$storageConfig
+				);
+			}
+
+			foreach ($applicableGroups as $applicable) {
+				$this->addMountPoint(
+					$mountPoints,
+					\OC_Mount_Config::MOUNT_TYPE_GROUP,
+					$applicable,
+					$rootMountPoint,
+					$storageConfig
+				);
 			}
 
 			// if neither "applicableGroups" or "applicableUsers" were set, use "all" user
-			if (!$applicableAdded) {
+			if (empty($applicableUsers) && empty($applicableGroups)) {
 				$this->addMountPoint(
 					$mountPoints,
 					\OC_Mount_Config::MOUNT_TYPE_USER,
@@ -83,6 +72,10 @@ class GlobalStoragesService extends StoragesService {
 					$storageConfig
 				);
 			}
+
+			// restore old backend options where the password was not encrypted,
+			// because we don't want to change the state of the original object
+			$storageConfig->setBackendOptions($oldBackendOptions);
 		}
 
 		\OC_Mount_Config::writeData(null, $mountPoints);
@@ -92,38 +85,35 @@ class GlobalStoragesService extends StoragesService {
 	 * Triggers $signal for all applicable users of the given
 	 * storage
 	 *
-	 * @param array $storage storage data
+	 * @param StorageConfig $storage storage data
 	 * @param string $signal signal to trigger
 	 */
-	protected function triggerHooks($storage, $signal) {
-		if (empty($storage['applicableUsers']) && empty($storage['applicableGroups'])) {
+	protected function triggerHooks(StorageConfig $storage, $signal) {
+		$applicableUsers = $storage->getApplicableUsers();
+		$applicableGroups = $storage->getApplicableGroups();
+		if (empty($applicableUsers) && empty($applicableGroups)) {
 			// raise for user "all"
 			$this->triggerApplicableHooks(
 				$signal,
-				$storage['mountPoint'],
+				$storage->getMountPoint(),
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				['all']
 			);
 			return;
 		}
 
-		if (isset($storage['applicableUsers'])) {
-			$this->triggerApplicableHooks(
-				$signal,
-				$storage['mountPoint'],
-				\OC_Mount_Config::MOUNT_TYPE_USER,
-				$storage['applicableUsers']
-			);
-		}
-
-		if (isset($storage['applicableGroups'])) {
-			$this->triggerApplicableHooks(
-				$signal,
-				$storage['mountPoint'],
-				\OC_Mount_Config::MOUNT_TYPE_GROUP,
-				$storage['applicableGroups']
-			);
-		}
+		$this->triggerApplicableHooks(
+			$signal,
+			$storage->getMountPoint(),
+			\OC_Mount_Config::MOUNT_TYPE_USER,
+			$applicableUsers
+		);
+		$this->triggerApplicableHooks(
+			$signal,
+			$storage->getMountPoint(),
+			\OC_Mount_Config::MOUNT_TYPE_GROUP,
+			$applicableGroups
+		);
 	}
 
 	/**
@@ -131,27 +121,27 @@ class GlobalStoragesService extends StoragesService {
 	 * accomodate for additions/deletions in applicableUsers
 	 * and applicableGroups fields.
 	 *
-	 * @param array $oldStorage old storage data
-	 * @param array $newStorage new storage data
+	 * @param StorageConfig $oldStorage old storage data
+	 * @param StorageConfig $newStorage new storage data
 	 */
-	protected function triggerChangeHooks($oldStorage, $newStorage) {
+	protected function triggerChangeHooks(StorageConfig $oldStorage, StorageConfig $newStorage) {
 		// if mount point changed, it's like a deletion + creation
-		if ($oldStorage['mountPoint'] !== $newStorage['mountPoint']) {
+		if ($oldStorage->getMountPoint() !== $newStorage->getMountPoint()) {
 			$this->triggerHooks($oldStorage, Filesystem::signal_delete_mount);
 			$this->triggerHooks($newStorage, Filesystem::signal_create_mount);
 			return;
 		}
 
-		$userAdditions = array_diff($newStorage['applicableUsers'], $oldStorage['applicableUsers']);
-		$userDeletions = array_diff($oldStorage['applicableUsers'], $newStorage['applicableUsers']);
-		$groupAdditions = array_diff($newStorage['applicableGroups'], $oldStorage['applicableGroups']);
-		$groupDeletions = array_diff($oldStorage['applicableGroups'], $newStorage['applicableGroups']);
+		$userAdditions = array_diff($newStorage->getApplicableUsers(), $oldStorage->getApplicableUsers());
+		$userDeletions = array_diff($oldStorage->getApplicableUsers(), $newStorage->getApplicableUsers());
+		$groupAdditions = array_diff($newStorage->getApplicableGroups(), $oldStorage->getApplicableGroups());
+		$groupDeletions = array_diff($oldStorage->getApplicableGroups(), $newStorage->getApplicableGroups());
 
 		// if no applicable were set, raise a signal for "all"
-		if (empty($oldStorage['applicableUsers']) && empty($oldStorage['applicableGroups'])) {
+		if (empty($oldStorage->getApplicableUsers()) && empty($oldStorage->getApplicableGroups())) {
 			$this->triggerApplicableHooks(
 				Filesystem::signal_delete_mount,
-				$oldStorage['mountPoint'],
+				$oldStorage->getMountPoint(),
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				['all']
 			);
@@ -160,7 +150,7 @@ class GlobalStoragesService extends StoragesService {
 		// trigger delete for removed users
 		$this->triggerApplicableHooks(
 			Filesystem::signal_delete_mount,
-			$oldStorage['mountPoint'],
+			$oldStorage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$userDeletions
 		);
@@ -168,7 +158,7 @@ class GlobalStoragesService extends StoragesService {
 		// trigger delete for removed groups
 		$this->triggerApplicableHooks(
 			Filesystem::signal_delete_mount,
-			$oldStorage['mountPoint'],
+			$oldStorage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_GROUP,
 			$groupDeletions
 		);
@@ -176,7 +166,7 @@ class GlobalStoragesService extends StoragesService {
 		// and now add the new users
 		$this->triggerApplicableHooks(
 			Filesystem::signal_create_mount,
-			$oldStorage['mountPoint'],
+			$newStorage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$userAdditions
 		);
@@ -184,16 +174,16 @@ class GlobalStoragesService extends StoragesService {
 		// and now add the new groups
 		$this->triggerApplicableHooks(
 			Filesystem::signal_create_mount,
-			$oldStorage['mountPoint'],
+			$newStorage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_GROUP,
 			$groupAdditions
 		);
 
 		// if no applicable, raise a signal for "all"
-		if (empty($newStorage['applicableUsers']) && empty($newStorage['applicableGroups'])) {
+		if (empty($newStorage->getApplicableUsers()) && empty($newStorage->getApplicableGroups())) {
 			$this->triggerApplicableHooks(
 				Filesystem::signal_create_mount,
-				$oldStorage['mountPoint'],
+				$newStorage->getMountPoint(),
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				['all']
 			);

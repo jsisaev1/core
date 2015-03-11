@@ -8,9 +8,11 @@
 
 namespace OCA\Files_external\Service;
 
-use \OCA\Files_external\NotFoundException;
 use \OCP\IUserSession;
 use \OC\Files\Filesystem;
+
+use \OCA\Files_external\Lib\StorageConfig;
+use \OCA\Files_external\NotFoundException;
 
 /**
  * Service class to manage user external storages
@@ -31,7 +33,7 @@ class UserStoragesService extends StoragesService {
 	/**
 	 * Read legacy config data
 	 *
-	 * @return array list of mount configs
+	 * @return array list of storage configs
 	 */
 	protected function readLegacyConfig() {
 		// read user config
@@ -46,18 +48,20 @@ class UserStoragesService extends StoragesService {
 	 */
 	protected function readConfig() {
 		$user = $this->userSession->getUser()->getUID();
+		// TODO: in the future don't rely on the global config reading code
 		$storages = parent::readConfig();
 
 		$filteredStorages = [];
 		foreach ($storages as $configId => $storage) {
 			// filter out all bogus storages that aren't for the current user
-			if (!in_array($user, $storage['applicableUsers'])) {
+			if (!in_array($user, $storage->getApplicableUsers())) {
 				continue;
 			}
 
+			// clear applicable users, should not be used
+			$storage->setApplicableUsers([]);
+
 			// strip out unneeded applicableUser fields
-			unset($storage['applicableUsers']);
-			unset($storage['applicableGroups']);
 			$filteredStorages[$configId] = $storage;
 		}
 
@@ -75,8 +79,13 @@ class UserStoragesService extends StoragesService {
 		// let the horror begin
 		$mountPoints = [];
 		foreach ($storages as $storageConfig) {
-			$mountPoint = $storageConfig['mountPoint'];
-			$storageConfig['backendOptions'] = \OC_Mount_Config::encryptPasswords($storageConfig['backendOptions']);
+			$mountPoint = $storageConfig->getMountPoint();
+			$oldBackendOptions = $storageConfig->getBackendOptions();
+			$storageConfig->setBackendOptions(
+				\OC_Mount_Config::encryptPasswords(
+					$oldBackendOptions
+				)
+			);
 
 			$rootMountPoint = '/' . $user . '/files/' . ltrim($mountPoint, '/');
 
@@ -87,44 +96,29 @@ class UserStoragesService extends StoragesService {
 				$rootMountPoint,
 				$storageConfig
 			);
+
+			// restore old backend options where the password was not encrypted,
+			// because we don't want to change the state of the original object
+			$storageConfig->setBackendOptions($oldBackendOptions);
 		}
 
 		\OC_Mount_Config::writeData($user, $mountPoints);
 	}
 
 	/**
-	 * Get a storage with status
-	 *
-	 * @param int $id
-	 *
-	 * @return array
-	 */
-	public function getStorage($id) {
-		$storage = parent::getStorage($id);
-
-		$storage['status'] = \OC_Mount_Config::getBackendStatus(
-			$storage['backendClass'],
-			$storage['backendOptions'],
-			true
-		);
-
-		return $storage;
-	}
-
-	/**
 	 * Triggers $signal for all applicable users of the given
 	 * storage
 	 *
-	 * @param array $storage storage data
+	 * @param StorageConfig $storage storage data
 	 * @param string $signal signal to trigger
 	 */
-	protected function triggerHooks($storage, $signal) {
+	protected function triggerHooks(StorageConfig $storage, $signal) {
 		$user = $this->userSession->getUser()->getUID();
 
 		// trigger hook for the current user
 		$this->triggerApplicableHooks(
 			$signal,
-			$storage['mountPoint'],
+			$storage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			[$user]
 		);
@@ -135,12 +129,12 @@ class UserStoragesService extends StoragesService {
 	 * accomodate for additions/deletions in applicableUsers
 	 * and applicableGroups fields.
 	 *
-	 * @param array $oldStorage old storage data
-	 * @param array $newStorage new storage data
+	 * @param StorageConfig $oldStorage old storage data
+	 * @param StorageConfig $newStorage new storage data
 	 */
-	protected function triggerChangeHooks($oldStorage, $newStorage) {
+	protected function triggerChangeHooks(StorageConfig $oldStorage, StorageConfig $newStorage) {
 		// if mount point changed, it's like a deletion + creation
-		if ($oldStorage['mountPoint'] !== $newStorage['mountPoint']) {
+		if ($oldStorage->getMountPoint() !== $newStorage->getMountPoint()) {
 			$this->triggerHooks($oldStorage, Filesystem::signal_delete_mount);
 			$this->triggerHooks($newStorage, Filesystem::signal_create_mount);
 		}

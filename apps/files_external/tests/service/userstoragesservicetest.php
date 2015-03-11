@@ -21,9 +21,11 @@
  */
 namespace OCA\Files_external\Tests\Service;
 
+use \OC\Files\Filesystem;
+
 use \OCA\Files_external\Service\UserStoragesService;
 use \OCA\Files_external\NotFoundException;
-use \OC\Files\Filesystem;
+use \OCA\Files_external\Lib\StorageConfig;
 
 class UserStoragesServiceTest extends StoragesServiceTest {
 
@@ -51,15 +53,15 @@ class UserStoragesServiceTest extends StoragesServiceTest {
 	}
 
 	private function makeTestStorageData() {
-		return array(
+		return $this->makeStorageConfig([
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
+			'backendOptions' => [
 				'option1' => 'value1',
 				'option2' => 'value2',
 				'password' => 'testPassword',
-			),
-		);
+			],
+		]);
 	}
 
 	public function testAddStorage() {
@@ -67,55 +69,58 @@ class UserStoragesServiceTest extends StoragesServiceTest {
 
 		$newStorage = $this->service->addStorage($storage);
 
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertEquals(1, $newStorage->getId());
 
 		$newStorage = $this->service->getStorage(1);
 
-		$this->assertEquals($storage['mountPoint'], $newStorage['mountPoint']);
-		$this->assertEquals($storage['backendClass'], $newStorage['backendClass']);
-		$this->assertEquals($storage['backendOptions'], $newStorage['backendOptions']);
-		$this->assertEquals(1, $newStorage['id']);
-		$this->assertEquals(0, $newStorage['status']);
+		$this->assertEquals($storage->getMountPoint(), $newStorage->getMountPoint());
+		$this->assertEquals($storage->getBackendClass(), $newStorage->getBackendClass());
+		$this->assertEquals($storage->getBackendOptions(), $newStorage->getBackendOptions());
+		$this->assertEquals(1, $newStorage->getId());
+		$this->assertEquals(0, $newStorage->getStatus());
 
 		// hook called once for user
 		$this->assertHookCall(
 			current(self::$hookCalls),
 			Filesystem::signal_create_mount,
-			$storage['mountPoint'],
+			$storage->getMountPoint(),
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$this->userId
 		);
 
 		// next one gets id 2
 		$nextStorage = $this->service->addStorage($storage);
-		$this->assertEquals(2, $nextStorage['id']);
+		$this->assertEquals(2, $nextStorage->getId());
 	}
 
 	public function testUpdateStorage() {
-		$storage = array(
+		$storage = $this->makeStorageConfig([
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
+			'backendOptions' => [
 				'option1' => 'value1',
 				'option2' => 'value2',
 				'password' => 'testPassword',
-			),
-		);
+			],
+		]);
 
 		$newStorage = $this->service->addStorage($storage);
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertEquals(1, $newStorage->getId());
 
-		$newStorage['backendOptions']['password'] = 'anotherPassword';
+		$backendOptions = $newStorage->getBackendOptions();
+		$backendOptions['password'] = 'anotherPassword';
+		$newStorage->setBackendOptions($backendOptions);
 
 		self::$hookCalls = [];
 
 		$newStorage = $this->service->updateStorage($newStorage);
 
-		$this->assertEquals('anotherPassword', $newStorage['backendOptions']['password']);
-		$this->assertFalse(isset($newStorage['applicableUsers']));
-		$this->assertFalse(isset($newStorage['applicableGroups']));
-		$this->assertEquals(1, $newStorage['id']);
-		$this->assertEquals(0, $newStorage['status']);
+		$this->assertEquals('anotherPassword', $newStorage->getBackendOptions()['password']);
+		// these attributes are unused for user storages
+		$this->assertEmpty($newStorage->getApplicableUsers());
+		$this->assertEmpty($newStorage->getApplicableGroups());
+		$this->assertEquals(1, $newStorage->getId());
+		$this->assertEquals(0, $newStorage->getStatus());
 
 		// no hook calls
 		$this->assertEmpty(self::$hookCalls);
@@ -128,7 +133,7 @@ class UserStoragesServiceTest extends StoragesServiceTest {
 		$this->assertHookCall(
 			self::$hookCalls[1],
 			Filesystem::signal_delete_mount,
-			'mountpoint',
+			'/mountpoint',
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$this->userId
 		);
@@ -138,7 +143,7 @@ class UserStoragesServiceTest extends StoragesServiceTest {
 		$storage = $this->makeTestStorageData();
 		$storage = $this->service->addStorage($storage);
 
-		$storage['mountPoint'] = 'renamedMountpoint';
+		$storage->setMountPoint('renamedMountpoint');
 
 		// reset calls
 		self::$hookCalls = [];
@@ -149,14 +154,14 @@ class UserStoragesServiceTest extends StoragesServiceTest {
 		$this->assertHookCall(
 			self::$hookCalls[0],
 			Filesystem::signal_delete_mount,
-			'mountpoint',
+			'/mountpoint',
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$this->userId
 		);
 		$this->assertHookCall(
 			self::$hookCalls[1],
 			Filesystem::signal_create_mount,
-			'renamedMountpoint',
+			'/renamedMountpoint',
 			\OC_Mount_Config::MOUNT_TYPE_USER,
 			$this->userId
 		);

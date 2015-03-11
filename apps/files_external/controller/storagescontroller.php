@@ -20,6 +20,7 @@ use \OCP\AppFramework\Controller;
 use \OCP\AppFramework\Http;
 use \OCA\Files_external\Service\StoragesService;
 use \OCA\Files_external\NotFoundException;
+use \OCA\Files_external\Lib\StorageConfig;
 
 abstract class StoragesController extends Controller {
 
@@ -53,12 +54,12 @@ abstract class StoragesController extends Controller {
 	/**
 	 * Validate storage config
 	 *
-	 * @param array $storage storage config
+	 * @param StorageConfig $storage storage config
 	 *
 	 * @return DataResponse|null returns response in case of validation error
 	 */
-	protected function validate($storage) {
-		$mountPoint = \OC\Files\Filesystem::normalizePath($storage['mountPoint']);
+	protected function validate(StorageConfig $storage) {
+		$mountPoint = $storage->getMountPoint();
 		if ($mountPoint === '' || $mountPoint === '/') {
 			return new DataResponse(
 				array(
@@ -71,11 +72,11 @@ abstract class StoragesController extends Controller {
 		// TODO: validate that other attrs are set
 
 		$backends = \OC_Mount_Config::getBackends();
-		if (!isset($backends[$storage['backendClass']])) {
+		if (!isset($backends[$storage->getBackendClass()])) {
 			// invalid backend
 			return new DataResponse(
 				array(
-					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($storage['backendClass']))
+					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($storage->getBackendClass()))
 				),
 				Http::STATUS_UNPROCESSABLE_ENTITY
 			);
@@ -84,6 +85,24 @@ abstract class StoragesController extends Controller {
 		return null;
 	}
 
+	/**
+	 * Check whether the given storage is available / valid.
+	 *
+	 * Note that this operation can be time consuming depending
+	 * on whether the remote storage is available or not.
+	 *
+	 * @param StorageConfig $storage
+	 */
+	protected function updateStorageStatus(StorageConfig &$storage) {
+		// update status (can be time-consuming)
+		$storage->setStatus(
+			\OC_Mount_Config::getBackendStatus(
+				$storage->getBackendClass(),
+				$storage->getBackendOptions(),
+				false
+			)
+		);
+	}
 
 	/**
 	 * Get an external storage entry.
@@ -95,6 +114,8 @@ abstract class StoragesController extends Controller {
 	public function show($id) {
 		try {
 			$storage = $this->service->getStorage($id);
+
+			$this->updateStorageStatus($storage);
 		} catch (NotFoundException $e) {
 			return new DataResponse(
 				[

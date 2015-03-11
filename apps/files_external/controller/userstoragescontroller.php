@@ -20,6 +20,7 @@ use \OCP\AppFramework\Controller;
 use \OCP\AppFramework\Http;
 use \OCA\Files_external\Service\UserStoragesService;
 use \OCA\Files_external\NotFoundException;
+use \OCA\Files_external\Lib\StorageConfig;
 
 class UserStoragesController extends StoragesController {
 	/**
@@ -45,11 +46,11 @@ class UserStoragesController extends StoragesController {
 	/**
 	 * Validate storage config
 	 *
-	 * @param array $storage storage config
+	 * @param StorageConfig $storage storage config
 	 *
 	 * @return DataResponse|null returns response in case of validation error
 	 */
-	protected function validate($storage) {
+	protected function validate(StorageConfig $storage) {
 		$result = parent::validate($storage);
 
 		if ($result != null) {
@@ -59,10 +60,10 @@ class UserStoragesController extends StoragesController {
 		// Verify that the mount point applies for the current user
 		// Prevent non-admin users from mounting local storage and other disabled backends
 		$allowedBackends = \OC_Mount_Config::getPersonalBackends();
-		if (!isset($allowedBackends[$storage['backendClass']])) {
+		if (!isset($allowedBackends[$storage->getBackendClass()])) {
 			return new DataResponse(
 				array(
-					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($storage['backendClass']))
+					'message' => (string)$this->l10n->t('Invalid storage backend "%s"', array($storage->getBackendClass()))
 				),
 				Http::STATUS_UNPROCESSABLE_ENTITY
 			);
@@ -95,11 +96,10 @@ class UserStoragesController extends StoragesController {
 		$backendClass,
 		$backendOptions
 	) {
-		$newStorage = [
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-		];
+		$newStorage = new StorageConfig();
+		$newStorage->setMountPoint($mountPoint);
+		$newStorage->setBackendClass($backendClass);
+		$newStorage->setBackendOptions($backendOptions);
 
 		$response = $this->validate($newStorage);
 		if (!empty($response)) {
@@ -107,6 +107,7 @@ class UserStoragesController extends StoragesController {
 		}
 
 		$newStorage = $this->service->addStorage($newStorage);
+		$this->updateStorageStatus($newStorage);
 
 		return new DataResponse(
 			$newStorage,
@@ -130,12 +131,10 @@ class UserStoragesController extends StoragesController {
 		$backendClass,
 		$backendOptions
 	) {
-		$storage = [
-			'id' => $id,
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions
-		];
+		$storage = new StorageConfig($id);
+		$storage->setMountPoint($mountPoint);
+		$storage->setBackendClass($backendClass);
+		$storage->setBackendOptions($backendOptions);
 
 		$response = $this->validate($storage);
 		if (!empty($response)) {
@@ -152,6 +151,8 @@ class UserStoragesController extends StoragesController {
 				Http::STATUS_NOT_FOUND
 			);
 		}
+
+		$this->updateStorageStatus($storage);
 
 		return new DataResponse(
 			$storage,

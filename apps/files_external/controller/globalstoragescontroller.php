@@ -20,6 +20,7 @@ use \OCP\AppFramework\Controller;
 use \OCP\AppFramework\Http;
 use \OCA\Files_external\Service\GlobalStoragesService;
 use \OCA\Files_external\NotFoundException;
+use \OCA\Files_external\Lib\StorageConfig;
 
 class GlobalStoragesController extends StoragesController {
 	/**
@@ -62,14 +63,13 @@ class GlobalStoragesController extends StoragesController {
 		$applicableGroups,
 		$priority
 	) {
-		$newStorage = [
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-			'applicableUsers' => $applicableUsers,
-			'applicableGroups' => $applicableGroups,
-			'priority' => $priority,
-		];
+		$newStorage = new StorageConfig();
+		$newStorage->setMountPoint($mountPoint);
+		$newStorage->setBackendClass($backendClass);
+		$newStorage->setBackendOptions($backendOptions);
+		$newStorage->setApplicableUsers($applicableUsers);
+		$newStorage->setApplicableGroups($applicableGroups);
+		$newStorage->setPriority($priority);
 
 		$response = $this->validate($newStorage);
 		if (!empty($response)) {
@@ -77,6 +77,8 @@ class GlobalStoragesController extends StoragesController {
 		}
 
 		$newStorage = $this->service->addStorage($newStorage);
+
+		$this->updateStorageStatus($newStorage);
 
 		return new DataResponse(
 			$newStorage,
@@ -106,15 +108,13 @@ class GlobalStoragesController extends StoragesController {
 		$applicableGroups,
 		$priority
 	) {
-		$storage = [
-			'id' => $id,
-			'mountPoint' => $mountPoint,
-			'backendClass' => $backendClass,
-			'backendOptions' => $backendOptions,
-			'applicableUsers' => $applicableUsers,
-			'applicableGroups' => $applicableGroups,
-			'priority' => $priority,
-		];
+		$storage = new StorageConfig($id);
+		$storage->setMountPoint($mountPoint);
+		$storage->setBackendClass($backendClass);
+		$storage->setBackendOptions($backendOptions);
+		$storage->setApplicableUsers($applicableUsers);
+		$storage->setApplicableGroups($applicableGroups);
+		$storage->setPriority($priority);
 
 		$response = $this->validate($storage);
 		if (!empty($response)) {
@@ -131,6 +131,8 @@ class GlobalStoragesController extends StoragesController {
 				Http::STATUS_NOT_FOUND
 			);
 		}
+
+		$this->updateStorageStatus($storage);
 
 		return new DataResponse(
 			$storage,

@@ -8,9 +8,11 @@
 
 namespace OCA\Files_external\Service;
 
-use \OCA\Files_external\NotFoundException;
 use \OCP\IUserSession;
 use \OC\Files\Filesystem;
+
+use \OCA\Files_external\Lib\StorageConfig;
+use \OCA\Files_external\NotFoundException;
 
 /**
  * Service class to manage external storages
@@ -74,37 +76,26 @@ abstract class StoragesService {
 					if (isset($storages[$configId])) {
 						$currentStorage = $storages[$configId];
 					} else {
-						$currentStorage = [];
-						$currentStorage['mountPoint'] = $relativeMountPath;
+						$currentStorage = new StorageConfig($configId);
+						$currentStorage->setMountPoint($relativeMountPath);
 					}
 
-					$currentStorage['id'] = $configId;
-					// note: the storage ID is NOT the config ID, it's the id
-					// used in oc_storages. There's a 1-N relationship because
-					// of the "$user" variable that can be used in config options
-					if (isset($storageOptions['storage_id'])) {
-						$currentStorage['storage_id'] = (int)$storageOptions['storage_id'];
-					}
-					$currentStorage['backendClass'] = $storageOptions['class'];
-					$currentStorage['backendOptions'] = $storageOptions['options'];
+					$currentStorage->setBackendClass($storageOptions['class']);
+					$currentStorage->setBackendOptions($storageOptions['options']);
 					if (isset($storageOptions['priority'])) {
-						$currentStorage['priority'] = $storageOptions['priority'];
-					}
-
-					if (!isset($currentStorage['applicableUsers'])) {
-						$currentStorage['applicableUsers'] = [];
-					}
-
-					if (!isset($currentStorage['applicableGroups'])) {
-						$currentStorage['applicableGroups'] = [];
+						$currentStorage->setPriority($storageOptions['priority']);
 					}
 
 					if ($mountType === \OC_Mount_Config::MOUNT_TYPE_USER) {
+						$applicableUsers = $currentStorage->getApplicableUsers();
 						if ($applicable !== 'all') {
-							$currentStorage['applicableUsers'][] = $applicable;
+							$applicableUsers[] = $applicable;
+							$currentStorage->setApplicableUsers($applicableUsers);
 						}
 					} else if ($mountType === \OC_Mount_Config::MOUNT_TYPE_GROUP) {
-						$currentStorage['applicableGroups'][] = $applicable;
+						$applicableGroups = $currentStorage->getApplicableGroups();
+						$applicableGroups[] = $applicable;
+						$currentStorage->setApplicableGroups($applicableGroups);
 					}
 					$storages[$configId] = $currentStorage;
 				}
@@ -113,7 +104,11 @@ abstract class StoragesService {
 
 		// decrypt passwords
 		foreach ($storages as &$storage) {
-			$storage['backendOptions'] = \OC_Mount_Config::decryptPasswords($storage['backendOptions']);
+			$storage->setBackendOptions(
+				\OC_Mount_Config::decryptPasswords(
+					$storage->getBackendOptions()
+				)
+			);
 		}
 
 		return $storages;
@@ -138,13 +133,13 @@ abstract class StoragesService {
 		}
 
 		$options = [
-			'id' => $storageConfig['id'],
-			'class' => $storageConfig['backendClass'],
-			'options' => $storageConfig['backendOptions'],
+			'id' => $storageConfig->getId(),
+			'class' => $storageConfig->getBackendClass(),
+			'options' => $storageConfig->getBackendOptions(),
 		];
 
-		if (isset($storageConfig['priority'])) {
-			$options['priority'] = $storageConfig['priority'];
+		if (!is_null($storageConfig->getPriority())) {
+			$options['priority'] = $storageConfig->getPriority();
 		}
 
 		$mountPoints[$mountType][$applicable][$rootMountPoint] = $options;
@@ -164,7 +159,7 @@ abstract class StoragesService {
 	 *
 	 * @param int $id
 	 *
-	 * @return array
+	 * @return StorageConfig
 	 */
 	public function getStorage($id) {
 		$allStorages = $this->readConfig();
@@ -181,13 +176,13 @@ abstract class StoragesService {
 	 *
 	 * @param array $newStorage storage attributes
 	 *
-	 * @return array storage attributes, with added id
+	 * @return StorageConfig storage config, with added id
 	 */
-	public function addStorage($newStorage) {
+	public function addStorage(StorageConfig $newStorage) {
 		$allStorages = $this->readConfig();
 
 		$configId = $this->generateNextId($allStorages);
-		$newStorage['id'] = $configId;
+		$newStorage->setId($configId);
 
 		// add new storage
 		$allStorages[$configId] = $newStorage;
@@ -196,7 +191,7 @@ abstract class StoragesService {
 
 		$this->triggerHooks($newStorage, Filesystem::signal_create_mount);
 
-		$newStorage['status'] = \OC_Mount_Config::STATUS_SUCCESS;
+		$newStorage->setStatus(\OC_Mount_Config::STATUS_SUCCESS);
 		return $newStorage;
 	}
 
@@ -226,10 +221,10 @@ abstract class StoragesService {
 	 * Triggers $signal for all applicable users of the given
 	 * storage
 	 *
-	 * @param array $storage storage data
+	 * @param StorageConfig $storage storage data
 	 * @param string $signal signal to trigger
 	 */
-	protected function triggerHooks($storage, $signal) {
+	protected function triggerHooks(StorageConfig $storage, $signal) {
 		// to be implemented by subclass
 	}
 
@@ -238,25 +233,25 @@ abstract class StoragesService {
 	 * accomodate for additions/deletions in applicableUsers
 	 * and applicableGroups fields.
 	 *
-	 * @param array $oldStorage old storage data
-	 * @param array $newStorage new storage data
+	 * @param StorageConfig $oldStorage old storage data
+	 * @param StorageConfig $newStorage new storage data
 	 */
-	protected function triggerChangeHooks($oldStorage, $newStorage) {
+	protected function triggerChangeHooks(StorageConfig $oldStorage, StorageConfig $newStorage) {
 		// to be implemented by subclass
 	}
 
 	/**
 	 * Update storage to the configuration
 	 *
-	 * @param array $updatedStorage storage attributes
+	 * @param StorageConfig $updatedStorage storage attributes
 	 *
-	 * @return array storage attributes
+	 * @return StorageConfig storage config
 	 * @throws NotFoundException
 	 */
-	public function updateStorage($updatedStorage) {
+	public function updateStorage(StorageConfig $updatedStorage) {
 		$allStorages = $this->readConfig();
 
-		$id = $updatedStorage['id'];
+		$id = $updatedStorage->getId();
 		if (!isset($allStorages[$id])) {
 			throw new NotFoundException('Storage with id "' . $id . '" not found');
 		}

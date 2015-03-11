@@ -21,12 +21,14 @@
  */
 namespace OCA\Files_external\Tests\Controller;
 
+use \OCP\AppFramework\Http;
+
 use \OCA\Files_external\Controller\GlobalStoragesController;
 use \OCA\Files_external\Service\GlobalStoragesService;
-use \OCP\AppFramework\Http;
+use \OCA\Files_external\Lib\StorageConfig;
 use \OCA\Files_external\NotFoundException;
 
-class StoragesControllerTest extends \Test\TestCase {
+abstract class StoragesControllerTest extends \Test\TestCase {
 
 	/**
 	 * @var GlobalStoragesController
@@ -47,14 +49,12 @@ class StoragesControllerTest extends \Test\TestCase {
 	}
 
 	public function testAddStorage() {
-		$storageData = array(
-			'id' => 1,
-			'mountpoint' => 'mount'
-		);
+		$storageConfig = new StorageConfig(1);
+		$storageConfig->setMountPoint('mount');
 
 		$this->service->expects($this->once())
 			->method('addStorage')
-			->will($this->returnValue($storageData));
+			->will($this->returnValue($storageConfig));
 
 		$response = $this->controller->create(
 			'mount',
@@ -66,19 +66,17 @@ class StoragesControllerTest extends \Test\TestCase {
 		);
 
 		$data = $response->getData();
-		$this->assertEquals($storageData, $data);
+		$this->assertEquals($storageConfig, $data);
 		$this->assertEquals(Http::STATUS_CREATED, $response->getStatus());
 	}
 
 	public function testUpdateStorage() {
-		$storageData = array(
-			'id' => 1,
-			'mountpoint' => 'mount'
-		);
+		$storageConfig = new StorageConfig(1);
+		$storageConfig->setMountPoint('mount');
 
 		$this->service->expects($this->once())
 			->method('updateStorage')
-			->will($this->returnValue($storageData));
+			->will($this->returnValue($storageConfig));
 
 		$response = $this->controller->update(
 			1,
@@ -91,7 +89,7 @@ class StoragesControllerTest extends \Test\TestCase {
 		);
 
 		$data = $response->getData();
-		$this->assertEquals($storageData, $data);
+		$this->assertEquals($storageConfig, $data);
 		$this->assertEquals(Http::STATUS_OK, $response->getStatus());
 	}
 
@@ -199,5 +197,21 @@ class StoragesControllerTest extends \Test\TestCase {
 
 		$response = $this->controller->destroy(255);
 		$this->assertEquals(Http::STATUS_NOT_FOUND, $response->getStatus());
+	}
+
+	public function testGetStorage() {
+		$storageConfig = new StorageConfig(1);
+		$storageConfig->setMountPoint('test');
+		$storageConfig->setBackendClass('\OC\Files\Storage\SMB');
+		$storageConfig->setBackendOptions(['user' => 'test', 'password', 'password123']);
+
+		$this->service->expects($this->once())
+			->method('getStorage')
+			->with(1)
+			->will($this->returnValue($storageConfig));
+		$response = $this->controller->show(1);
+
+		$this->assertEquals(Http::STATUS_OK, $response->getStatus());
+		$this->assertEquals($storageConfig, $response->getData());
 	}
 }

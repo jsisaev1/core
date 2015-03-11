@@ -21,9 +21,11 @@
  */
 namespace OCA\Files_external\Tests\Service;
 
+use \OC\Files\Filesystem;
+
 use \OCA\Files_external\Service\GlobalStoragesService;
 use \OCA\Files_external\NotFoundException;
-use \OC\Files\Filesystem;
+use \OCA\Files_external\Lib\StorageConfig;
 
 class GlobalStoragesServiceTest extends StoragesServiceTest {
 	public function setUp() {
@@ -37,7 +39,7 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	}
 
 	protected function makeTestStorageData() {
-		return [ 
+		return $this->makeStorageConfig([ 
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
 			'backendOptions' => [
@@ -48,14 +50,14 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			'applicableUsers' => [],
 			'applicableGroups' => [],
 			'priority' => 15,
-		];
+		]);
 	}
 
 	function storageDataProvider() {
 		return [
 			// all users
 			[
-				[
+				$this->makeStorageConfig([
 					'mountPoint' => 'mountpoint',
 					'backendClass' => '\OC\Files\Storage\SMB',
 					'backendOptions' => [
@@ -66,11 +68,11 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 					'applicableUsers' => [],
 					'applicableGroups' => [],
 					'priority' => 15,
-				],
+				]),
 			],
 			// some users
 			[
-				[
+				$this->makeStorageConfig([
 					'mountPoint' => 'mountpoint',
 					'backendClass' => '\OC\Files\Storage\SMB',
 					'backendOptions' => [
@@ -81,11 +83,11 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 					'applicableUsers' => ['user1', 'user2'],
 					'applicableGroups' => [],
 					'priority' => 15,
-				],
+				]),
 			],
 			// some groups
 			[
-				[
+				$this->makeStorageConfig([
 					'mountPoint' => 'mountpoint',
 					'backendClass' => '\OC\Files\Storage\SMB',
 					'backendOptions' => [
@@ -96,11 +98,11 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 					'applicableUsers' => [],
 					'applicableGroups' => ['group1', 'group2'],
 					'priority' => 15,
-				],
+				]),
 			],
 			// both users and groups
 			[
-				[
+				$this->makeStorageConfig([
 					'mountPoint' => 'mountpoint',
 					'backendClass' => '\OC\Files\Storage\SMB',
 					'backendOptions' => [
@@ -111,7 +113,7 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 					'applicableUsers' => ['user1', 'user2'],
 					'applicableGroups' => ['group1', 'group2'],
 					'priority' => 15,
-				],
+				]),
 			],
 		];
 	}
@@ -122,30 +124,30 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	public function testAddStorage($storage) {
 		$newStorage = $this->service->addStorage($storage);
 
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertEquals(1, $newStorage->getId());
 
 
 		$newStorage = $this->service->getStorage(1);
 
-		$this->assertEquals($storage['mountPoint'], $newStorage['mountPoint']);
-		$this->assertEquals($storage['backendClass'], $newStorage['backendClass']);
-		$this->assertEquals($storage['backendOptions'], $newStorage['backendOptions']);
-		$this->assertEquals($storage['applicableUsers'], $newStorage['applicableUsers']);
-		$this->assertEquals($storage['applicableGroups'], $newStorage['applicableGroups']);
-		$this->assertEquals($storage['priority'], $newStorage['priority']);
-		$this->assertEquals(1, $newStorage['id']);
-		$this->assertEquals(0, $newStorage['status']);
+		$this->assertEquals($storage->getMountPoint(), $newStorage->getMountPoint());
+		$this->assertEquals($storage->getBackendClass(), $newStorage->getBackendClass());
+		$this->assertEquals($storage->getBackendOptions(), $newStorage->getBackendOptions());
+		$this->assertEquals($storage->getApplicableUsers(), $newStorage->getApplicableUsers());
+		$this->assertEquals($storage->getApplicableGroups(), $newStorage->getApplicableGroups());
+		$this->assertEquals($storage->getPriority(), $newStorage->getPriority());
+		$this->assertEquals(1, $newStorage->getId());
+		$this->assertEquals(0, $newStorage->getStatus());
 
 		// next one gets id 2
 		$nextStorage = $this->service->addStorage($storage);
-		$this->assertEquals(2, $nextStorage['id']);
+		$this->assertEquals(2, $nextStorage->getId());
 	}
 
 	/**
 	 * @dataProvider storageDataProvider
 	 */
 	public function testUpdateStorage($updatedStorage) {
-		$storage = [
+		$storage = $this->makeStorageConfig([
 			'mountPoint' => 'mountpoint',
 			'backendClass' => '\OC\Files\Storage\SMB',
 			'backendOptions' => [
@@ -156,22 +158,23 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			'applicableUsers' => [],
 			'applicableGroups' => [],
 			'priority' => 15,
-		];
+		]);
 
 		$newStorage = $this->service->addStorage($storage);
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertEquals(1, $newStorage->getId());
 
-		$updatedStorage['id'] = 1;
+		$updatedStorage->setId(1);
+
 		$this->service->updateStorage($updatedStorage);
 		$newStorage = $this->service->getStorage(1);
 
-		$this->assertEquals($updatedStorage['mountPoint'], $newStorage['mountPoint']);
-		$this->assertEquals($updatedStorage['backendOptions']['password'], $newStorage['backendOptions']['password']);
-		$this->assertEquals($updatedStorage['applicableUsers'], $newStorage['applicableUsers']);
-		$this->assertEquals($updatedStorage['applicableGroups'], $newStorage['applicableGroups']);
-		$this->assertEquals($updatedStorage['priority'], $newStorage['priority']);
-		$this->assertEquals(1, $newStorage['id']);
-		$this->assertEquals(0, $newStorage['status']);
+		$this->assertEquals($updatedStorage->getMountPoint(), $newStorage->getMountPoint());
+		$this->assertEquals($updatedStorage->getBackendOptions()['password'], $newStorage->getBackendOptions()['password']);
+		$this->assertEquals($updatedStorage->getApplicableUsers(), $newStorage->getApplicableUsers());
+		$this->assertEquals($updatedStorage->getApplicableGroups(), $newStorage->getApplicableGroups());
+		$this->assertEquals($updatedStorage->getPriority(), $newStorage->getPriority());
+		$this->assertEquals(1, $newStorage->getId());
+		$this->assertEquals(0, $newStorage->getStatus());
 	}
 
 	function hooksAddStorageDataProvider() {
@@ -286,8 +289,8 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	 */
 	public function testHooksAddStorage($applicableUsers, $applicableGroups, $expectedCalls) {
 		$storage = $this->makeTestStorageData();
-		$storage['applicableUsers'] = $applicableUsers;
-		$storage['applicableGroups'] = $applicableGroups;
+		$storage->setApplicableUsers($applicableUsers);
+		$storage->setApplicableGroups($applicableGroups);
 		$this->service->addStorage($storage);
 
 		$this->assertCount(count($expectedCalls), self::$hookCalls);
@@ -296,7 +299,7 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			$this->assertHookCall(
 				self::$hookCalls[$index],
 				$call[0],
-				$storage['mountPoint'],
+				$storage->getMountPoint(),
 				$call[1],
 				$call[2]
 			);
@@ -430,12 +433,12 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	   	$expectedCalls) {
 
 		$storage = $this->makeTestStorageData();
-		$storage['applicableUsers'] = $sourceApplicableUsers;
-		$storage['applicableGroups'] = $sourceApplicableGroups;
+		$storage->setApplicableUsers($sourceApplicableUsers);
+		$storage->setApplicableGroups($sourceApplicableGroups);
 		$storage = $this->service->addStorage($storage);
 
-		$storage['applicableUsers'] = $updatedApplicableUsers;
-		$storage['applicableGroups'] = $updatedApplicableGroups;
+		$storage->setapplicableUsers($updatedApplicableUsers);
+		$storage->setapplicableGroups($updatedApplicableGroups);
 
 		// reset calls
 		self::$hookCalls = [];
@@ -448,7 +451,7 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			$this->assertHookCall(
 				self::$hookCalls[$index],
 				$call[0],
-				'mountpoint',
+				'/mountpoint',
 				$call[1],
 				$call[2]
 			);
@@ -459,11 +462,11 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	 */
 	public function testHooksRenameMountPoint() {
 		$storage = $this->makeTestStorageData();
-		$storage['applicableUsers'] = ['user1', 'user2'];
-		$storage['applicableGroups'] = ['group1', 'group2'];
+		$storage->setApplicableUsers(['user1', 'user2']);
+		$storage->setApplicableGroups(['group1', 'group2']);
 		$storage = $this->service->addStorage($storage);
 
-		$storage['mountPoint'] = 'renamedMountpoint';
+		$storage->setMountPoint('renamedMountpoint');
 
 		// reset calls
 		self::$hookCalls = [];
@@ -474,50 +477,50 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			// deletes old mount
 			[
 				Filesystem::signal_delete_mount,
-				'mountpoint',
+				'/mountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				'user1',
 			],
 			[
 				Filesystem::signal_delete_mount,
-				'mountpoint',
+				'/mountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				'user2',
 			],
 			[
 				Filesystem::signal_delete_mount,
-				'mountpoint',
+				'/mountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_GROUP,
 				'group1',
 			],
 			[
 				Filesystem::signal_delete_mount,
-				'mountpoint',
+				'/mountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_GROUP,
 				'group2',
 			],
 			// creates new one
 			[
 				Filesystem::signal_create_mount,
-				'renamedMountpoint',
+				'/renamedMountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				'user1',
 			],
 			[
 				Filesystem::signal_create_mount,
-				'renamedMountpoint',
+				'/renamedMountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_USER,
 				'user2',
 			],
 			[
 				Filesystem::signal_create_mount,
-				'renamedMountpoint',
+				'/renamedMountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_GROUP,
 				'group1',
 			],
 			[
 				Filesystem::signal_create_mount,
-				'renamedMountpoint',
+				'/renamedMountpoint',
 				\OC_Mount_Config::MOUNT_TYPE_GROUP,
 				'group2',
 			],
@@ -589,14 +592,14 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 	   	$expectedCalls) {
 
 		$storage = $this->makeTestStorageData();
-		$storage['applicableUsers'] = $sourceApplicableUsers;
-		$storage['applicableGroups'] = $sourceApplicableGroups;
+		$storage->setApplicableUsers($sourceApplicableUsers);
+		$storage->setApplicableGroups($sourceApplicableGroups);
 		$storage = $this->service->addStorage($storage);
 
 		// reset calls
 		self::$hookCalls = [];
 
-		$this->service->removeStorage($storage['id']);
+		$this->service->removeStorage($storage->getId());
 
 		$this->assertCount(count($expectedCalls), self::$hookCalls);
 
@@ -604,7 +607,7 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 			$this->assertHookCall(
 				self::$hookCalls[$index],
 				$call[0],
-				'mountpoint',
+				'/mountpoint',
 				$call[1],
 				$call[2]
 			);
@@ -651,8 +654,8 @@ class GlobalStoragesServiceTest extends StoragesServiceTest {
 		$configFile = $this->dataDir . '/mount.json';
 
 		$storage = $this->makeTestStorageData();
-		$storage['applicableUsers'] = ['user1', 'user2'];
-		$storage['applicableGroups'] = ['group1', 'group2'];
+		$storage->setApplicableUsers(['user1', 'user2']);
+		$storage->setApplicableGroups(['group1', 'group2']);
 
 		$storage = $this->service->addStorage($storage);
 

@@ -21,8 +21,10 @@
  */
 namespace OCA\Files_external\Tests\Service;
 
-use \OCA\Files_external\NotFoundException;
 use \OC\Files\Filesystem;
+
+use \OCA\Files_external\NotFoundException;
+use \OCA\Files_external\Lib\StorageConfig;
 
 class StoragesServiceTest extends \Test\TestCase {
 
@@ -71,29 +73,51 @@ class StoragesServiceTest extends \Test\TestCase {
 	}
 
 	/**
+	 * Creates a StorageConfig instance based on array data
+	 *
+	 * @param array data
+	 *
+	 * @return StorageConfig storage config instance
+	 */
+	protected function makeStorageConfig($data) {
+		$storage = new StorageConfig();
+		if (isset($data['id'])) {
+			$storage->setId($data['id']);
+		}
+		$storage->setMountPoint($data['mountPoint']);
+		$storage->setBackendClass($data['backendClass']);
+		$storage->setBackendOptions($data['backendOptions']);
+		if (isset($data['applicableUsers'])) {
+			$storage->setApplicableUsers($data['applicableUsers']);
+		}
+		if (isset($data['applicableGroups'])) {
+			$storage->setApplicableGroups($data['applicableGroups']);
+		}
+		if (isset($data['priority'])) {
+			$storage->setPriority($data['priority']);
+		}
+		return $storage;
+	}
+
+
+	/**
 	 * @expectedException \OCA\Files_external\NotFoundException
 	 */
 	public function testNonExistingStorage() {
-		$storage = array(
-			'id' => '255',
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(),
-		);
+		$storage = new StorageConfig(255);
+		$storage->setMountPoint('mountpoint');
+		$storage->setBackendClass('\OC\Files\Storage\SMB');
 		$this->service->updateStorage($storage);
 	}
 
 	public function testDeleteStorage() {
-		$storage = array(
-			'mountPoint' => 'mountpoint',
-			'backendClass' => '\OC\Files\Storage\SMB',
-			'backendOptions' => array(
-				'password' => 'testPassword',
-			),
-		);
+		$storage = new StorageConfig(255);
+		$storage->setMountPoint('mountpoint');
+		$storage->setBackendClass('\OC\Files\Storage\SMB');
+		$storage->setBackendOptions(['password' => 'testPassword']);
 
 		$newStorage = $this->service->addStorage($storage);
-		$this->assertEquals(1, $newStorage['id']);
+		$this->assertEquals(1, $newStorage->getId());
 
 		$newStorage = $this->service->removeStorage(1);
 
