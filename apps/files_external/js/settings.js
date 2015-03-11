@@ -36,18 +36,134 @@ function highlightInput($input) {
 }
 
 /**
- * External storage model
+ * Initialize select2 plugin on the given elements
+ *
+ * @param {Array<Object>} array of jQuery elements
+ * @param {int} userListLimit page size for result list
  */
-var Storage = function(id) {
+function addSelect2 ($elements, userListLimit) {
+	if (!$elements.length) {
+		return;
+	}
+	$elements.select2({
+		placeholder: t('files_external', 'All users. Type to select user or group.'),
+		allowClear: true,
+		multiple: true,
+		//minimumInputLength: 1,
+		ajax: {
+			url: OC.generateUrl('apps/files_external/applicable'),
+			dataType: 'json',
+			quietMillis: 100,
+			data: function (term, page) { // page is the one-based page number tracked by Select2
+				return {
+					pattern: term, //search term
+					limit: userListLimit, // page size
+					offset: userListLimit*(page-1) // page number starts with 0
+				};
+			},
+			results: function (data) {
+				if (data.status === 'success') {
+
+					var results = [];
+					var userCount = 0; // users is an object
+
+					// add groups
+					$.each(data.groups, function(i, group) {
+						results.push({name:group+'(group)', displayname:group, type:'group' });
+					});
+					// add users
+					$.each(data.users, function(id, user) {
+						userCount++;
+						results.push({name:id, displayname:user, type:'user' });
+					});
+
+
+					var more = (userCount >= userListLimit) || (data.groups.length >= userListLimit);
+					return {results: results, more: more};
+				} else {
+					//FIXME add error handling
+				}
+			}
+		},
+		initSelection: function(element, callback) {
+			var users = {};
+			users['users'] = [];
+			var toSplit = element.val().split(",");
+			for (var i = 0; i < toSplit.length; i++) {
+				users['users'].push(toSplit[i]);
+			}
+
+			$.ajax(OC.generateUrl('displaynames'), {
+				type: 'POST',
+				contentType: 'application/json',
+				data: JSON.stringify(users),
+				dataType: 'json'
+			}).done(function(data) {
+				var results = [];
+				if (data.status === 'success') {
+					$.each(data.users, function(user, displayname) {
+						if (displayname !== false) {
+							results.push({name:user, displayname:displayname, type:'user'});
+						}
+					});
+					callback(results);
+				} else {
+					//FIXME add error handling
+				}
+			});
+		},
+		id: function(element) {
+			return element.name;
+		},
+		formatResult: function (element) {
+			var $result = $('<span><div class="avatardiv"/><span>'+escapeHTML(element.displayname)+'</span></span>');
+			var $div = $result.find('.avatardiv')
+				.attr('data-type', element.type)
+				.attr('data-name', element.name)
+				.attr('data-displayname', element.displayname);
+			if (element.type === 'group') {
+				var url = OC.imagePath('core','places/contacts-dark'); // TODO better group icon
+				$div.html('<img width="32" height="32" src="'+url+'">');
+			}
+			return $result.get(0).outerHTML;
+		},
+		formatSelection: function (element) {
+			if (element.type === 'group') {
+				return '<span title="'+escapeHTML(element.name)+'" class="group">'+escapeHTML(element.displayname+' '+t('files_external', '(group)'))+'</span>';
+			} else {
+				return '<span title="'+escapeHTML(element.name)+'" class="user">'+escapeHTML(element.displayname)+'</span>';
+			}
+		},
+		escapeMarkup: function (m) { return m; } // we escape the markup in formatResult and formatSelection
+	}).on('select2-loaded', function() {
+		$.each($('.avatardiv'), function(i, div) {
+			var $div = $(div);
+			if ($div.data('type') === 'user') {
+				$div.avatar($div.data('name'),32);
+			}
+		});
+	});
+}
+
+/**
+ * @class OCA.External.Settings.StorageConfig
+ *
+ * @classdesc External storage config
+ */
+var StorageConfig = function(id) {
 	this.id = id;
+	this.backendOptions = {};
 };
 // Keep this in sync with \OC_Mount_Config::STATUS_*
-Storage.Status = {
+StorageConfig.Status = {
 	IN_PROGRESS: -1,
 	SUCCESS: 0,
 	ERROR: 1
 };
-Storage.prototype = {
+/**
+ * @memberof OCA.External.Settings
+ */
+StorageConfig.prototype = {
 	_url: null,
 
 	/**
@@ -76,7 +192,7 @@ Storage.prototype = {
 	 *
 	 * @type Object.<string,object>
 	 */
-	backendOptions: {},
+	backendOptions: null,
 
 	/**
 	 * Creates or saves the storage.
@@ -181,10 +297,22 @@ Storage.prototype = {
 	}
 };
 
-var GlobalStorage = function(id) {
+/**
+ * @class OCA.External.Settings.GlobalStorageConfig
+ * @augments OCA.External.Settings.StorageConfig
+ *
+ * @classdesc Global external storage config
+ */
+var GlobalStorageConfig = function(id) {
 	this.id = id;
+	this.applicableUsers = [];
+	this.applicableGroups = [];
 };
-GlobalStorage.prototype = _.extend({}, Storage.prototype, {
+/**
+ * @memberOf OCA.External.Settings
+ */
+GlobalStorageConfig.prototype = _.extend({}, StorageConfig.prototype,
+	/** @lends OCA.External.Settings.GlobalStorageConfig.prototype */ {
 	_url: 'apps/files_external/globalstorages',
 
 	/**
@@ -192,14 +320,14 @@ GlobalStorage.prototype = _.extend({}, Storage.prototype, {
 	 *
 	 * @type Array.<string>
 	 */
-	applicableUsers: [],
+	applicableUsers: null,
 
 	/**
 	 * Applicable groups
 	 *
 	 * @type Array.<string>
 	 */
-	applicableGroups: [],
+	applicableGroups: null,
 
 	/**
 	 * Returns the data from this object
@@ -207,41 +335,230 @@ GlobalStorage.prototype = _.extend({}, Storage.prototype, {
 	 * @return {Array} JSON array of the data
 	 */
 	getData: function() {
-		var data = Storage.prototype.getData.apply(this, arguments);
+		var data = StorageConfig.prototype.getData.apply(this, arguments);
 		return _.extend(data, {
 			applicableUsers: this.applicableUsers,
 			applicableGroups: this.applicableGroups,
 		});
 	}
 });
-var UserStorage = function(id) {
+
+/**
+ * @class OCA.External.Settings.UserStorageConfig
+ * @augments OCA.External.Settings.StorageConfig
+ *
+ * @classdesc User external storage config
+ */
+var UserStorageConfig = function(id) {
 	this.id = id;
 };
-UserStorage.prototype = _.extend({}, Storage.prototype, {
+UserStorageConfig.prototype = _.extend({}, StorageConfig.prototype,
+	/** @lends OCA.External.Settings.UserStorageConfig.prototype */ {
 	_url: 'apps/files_external/userstorages'
 });
 
-var MountConfig = {
-	isPersonal: false,
+/**
+ * @class OCA.External.Settings.MountConfigListView
+ *
+ * @classdesc Mount configuration list view
+ *
+ * @param {Object} $el DOM object containing the list
+ * @param {Object} [options]
+ * @param {int} [options.userListLimit] page size in applicable users dropdown
+ */
+var MountConfigListView = function($el, options) {
+	this.initialize($el, options);
+};
+/**
+ * @memberOf OCA.External.Settings
+ */
+MountConfigListView.prototype = {
 
-	initialize: function($el) {
-		this.isPersonal = ($el.data('admin') !== true);
+	/**
+	 * jQuery element containing the config list
+	 *
+	 * @type Object
+	 */
+	$el: null,
+
+	/**
+	 * Storage config class
+	 *
+	 * @type Class
+	 */
+	_storageConfigClass: null,
+
+	/**
+	 * Flag whether the list is about user storage configs (true)
+	 * or global storage configs (false)
+	 * 
+	 * @type bool
+	 */
+	_isPersonal: false,
+
+	/**
+	 * Page size in applicable users dropdown
+	 *
+	 * @type int
+	 */
+	_userListLimit: 30,
+
+	/**
+	 * @param {Object} $el DOM object containing the list
+	 * @param {Object} [options]
+	 * @param {int} [options.userListLimit] page size in applicable users dropdown
+	 */
+	initialize: function($el, options) {
+		this.$el = $el;
+		this._isPersonal = ($el.data('admin') !== true);
+		if (this._isPersonal) {
+			this._storageConfigClass = OCA.External.Settings.UserStorageConfig;
+		} else {
+			this._storageConfigClass = OCA.External.Settings.GlobalStorageConfig;
+		}
+
+		if (options && !_.isUndefined(options.userListLimit)) {
+			this._userListLimit = options.userListLimit;
+		}
+
+		//initialize hidden input field with list of users and groups
+		this.$el.find('tr:not(#addMountPoint)').each(function(i,tr) {
+			var $tr = $(tr);
+			var $applicable = $tr.find('.applicable');
+			if ($applicable.length > 0) {
+				var groups = $applicable.data('applicable-groups');
+				var groupsId = [];
+				$.each(groups, function () {
+					groupsId.push(this + '(group)');
+				});
+				var users = $applicable.data('applicable-users');
+				if (users.indexOf('all') > -1 || users === '') {
+					$tr.find('.applicableUsers').val('');
+				} else {
+					$tr.find('.applicableUsers').val(groupsId.concat(users).join(','));
+				}
+			}
+		});
+
+		addSelect2(this.$el.find('tr:not(#addMountPoint) .applicableUsers'), this._userListLimit);
+
+		this._initEvents();
+	},
+
+	/**
+	 * Initialize DOM event handlers
+	 */
+	_initEvents: function() {
+		var self = this;
+
+		this.$el.on('paste', 'td input', function() {
+			var $me = $(this);
+			var $tr = $me.closest('tr');
+			setTimeout(function() {
+				highlightInput($me);
+				self.saveStorageConfig($tr);
+			}, 20);
+		});
+
+		var timer;
+
+		this.$el.on('keyup', 'td input', function() {
+			clearTimeout(timer);
+			var $tr = $(this).closest('tr');
+			highlightInput($(this));
+			if ($(this).val) {
+				timer = setTimeout(function() {
+					self.saveStorageConfig($tr);
+				}, 2000);
+			}
+		});
+
+		this.$el.on('change', 'td input:checkbox', function() {
+			self.saveStorageConfig($(this).closest('tr'));
+		});
+
+		this.$el.on('change', '.applicable', function() {
+			self.saveStorageConfig($(this).closest('tr'));
+		});
+
+		this.$el.on('click', '.status>span', function() {
+			self.recheckStorageConfig($(this).closest('tr'));
+		});
+
+		this.$el.on('click', 'td.remove>img', function() {
+			self.deleteStorageConfig($(this).closest('tr'));
+		});
+
+		this.$el.on('change', '.selectBackend', _.bind(this._onSelectBackend, this));
+	},
+
+	_onSelectBackend: function(event) {
+		var $target = $(event.target);
+		var $el = this.$el;
+		var $tr = $target.closest('tr');
+		$el.find('tbody').append($tr.clone());
+		$el.find('tbody tr').last().find('.mountPoint input').val('');
+		var selected = $target.find('option:selected').text();
+		var backendClass = $target.val();
+		$tr.find('.backend').text(selected);
+		if ($tr.find('.mountPoint input').val() === '') {
+			$tr.find('.mountPoint input').val(this._suggestMountPoint(selected));
+		}
+		$tr.addClass(backendClass);
+		$tr.find('.status').append('<span></span>');
+		$tr.find('.backend').data('class', backendClass);
+		var configurations = $target.data('configurations');
+		var $td = $tr.find('td.configuration');
+		$.each(configurations, function(backend, parameters) {
+			if (backend === backendClass) {
+				$.each(parameters['configuration'], function(parameter, placeholder) {
+					var is_optional = false;
+					if (placeholder.indexOf('&') === 0) {
+						is_optional = true;
+						placeholder = placeholder.substring(1);
+					}
+					var newElement;
+					if (placeholder.indexOf('*') === 0) {
+						var class_string = is_optional ? ' optional' : '';
+						newElement = $('<input type="password" class="added' + class_string + '" data-parameter="'+parameter+'" placeholder="'+placeholder.substring(1)+'" />');
+					} else if (placeholder.indexOf('!') === 0) {
+						newElement = $('<label><input type="checkbox" class="added" data-parameter="'+parameter+'" />'+placeholder.substring(1)+'</label>');
+					} else if (placeholder.indexOf('#') === 0) {
+						newElement = $('<input type="hidden" class="added" data-parameter="'+parameter+'" />');
+					} else {
+						var class_string = is_optional ? ' optional' : '';
+						newElement = $('<input type="text" class="added' + class_string + '" data-parameter="'+parameter+'" placeholder="'+placeholder+'" />');
+					}
+					highlightInput(newElement);
+					$td.append(newElement);
+				});
+				if (parameters['custom'] && $el.find('tbody tr.'+backendClass.replace(/\\/g, '\\\\')).length === 1) {
+					OC.addScript('files_external', parameters['custom']);
+				}
+				$td.children().not('[type=hidden]').first().focus();
+				return false;
+			}
+		});
+		$tr.find('td').last().attr('class', 'remove');
+		$tr.find('td').last().removeAttr('style');
+		$tr.removeAttr('id');
+		$target.remove();
+		addSelect2($tr.find('.applicableUsers'), this._userListLimit);
 	},
 
 	/**
 	 * Gets the storage model from the given row
 	 *
 	 * @param $tr row element
-	 * @return {OCA.External.Storage} storage model instance
+	 * @return {OCA.External.StorageConfig} storage model instance
 	 */
-	getStorage: function($tr) {
+	getStorageConfig: function($tr) {
 		var storageId = parseInt($tr.attr('data-id'), 10);
 		if (!storageId) {
 			// new entry
 			storageId = null;
 		}
-		var StorageClass = this.isPersonal ? OCA.External.UserStorage : OCA.External.GlobalStorage;
-		var storage = new StorageClass(storageId);
+		var storage = new this._storageConfigClass(storageId);
 		storage.mountPoint = $tr.find('.mountPoint input').val();
 		storage.backendClass = $tr.find('.backend').data('class');
 
@@ -277,7 +594,7 @@ var MountConfig = {
 		}
 
 		// gather selected users and groups
-		if (!this.isPersonal) {
+		if (!this._isPersonal) {
 			var groups = [];
 			var users = [];
 			var multiselect = getSelection($tr);
@@ -307,7 +624,7 @@ var MountConfig = {
 	 * @param $tr storage row
 	 * @param Function callback callback to call after save
 	 */
-	deleteStorage: function($tr) {
+	deleteStorageConfig: function($tr) {
 		var self = this;
 		var configId = $tr.data('id');
 		if (!_.isNumber(configId)) {
@@ -315,16 +632,15 @@ var MountConfig = {
 			$tr.remove();
 			return;
 		}
-		var StorageClass = this.isPersonal ? OCA.External.UserStorage : OCA.External.GlobalStorage;
-		var storage = new StorageClass(configId);
-		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
+		var storage = new this._storageConfigClass(configId);
+		this.updateStatus($tr, StorageConfig.Status.IN_PROGRESS);
 
 		storage.destroy({
 			success: function() {
 				$tr.remove();
 			},
 			error: function() {
-				self.updateStatus($tr, Storage.Status.ERROR);
+				self.updateStatus($tr, StorageConfig.Status.ERROR);
 			}
 		});
 	},
@@ -335,14 +651,14 @@ var MountConfig = {
 	 * @param $tr storage row
 	 * @param Function callback callback to call after save
 	 */
-	saveStorage:function($tr, callback) {
+	saveStorageConfig:function($tr, callback) {
 		var self = this;
-		var storage = this.getStorage($tr);
+		var storage = this.getStorageConfig($tr);
 		if (!storage.validate()) {
 			return false;
 		}
 
-		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
+		this.updateStatus($tr, StorageConfig.Status.IN_PROGRESS);
 		storage.save({
 			success: function(result) {
 				self.updateStatus($tr, result.status);
@@ -353,7 +669,7 @@ var MountConfig = {
 				}
 			},
 			error: function() {
-				self.updateStatus($tr, Storage.Status.ERROR);
+				self.updateStatus($tr, StorageConfig.Status.ERROR);
 			}
 		});
 	},
@@ -364,20 +680,20 @@ var MountConfig = {
 	 * @param {jQuery} $tr storage row
 	 * @return {boolean} success
 	 */
-	recheckStorage: function($tr) {
+	recheckStorageConfig: function($tr) {
 		var self = this;
-		var storage = this.getStorage($tr);
+		var storage = this.getStorageConfig($tr);
 		if (!storage.validate()) {
 			return false;
 		}
 
-		this.updateStatus($tr, Storage.Status.IN_PROGRESS);
+		this.updateStatus($tr, StorageConfig.Status.IN_PROGRESS);
 		storage.recheck({
 			success: function(result) {
 				self.updateStatus($tr, result.status);
 			},
 			error: function() {
-				self.updateStatus($tr, Storage.Status.ERROR);
+				self.updateStatus($tr, StorageConfig.Status.ERROR);
 			}
 		});
 	},
@@ -392,200 +708,24 @@ var MountConfig = {
 		var $statusSpan = $tr.find('.status span');
 		$statusSpan.removeClass('success error loading-small');
 		switch (status) {
-			case Storage.Status.IN_PROGRESS:
+			case StorageConfig.Status.IN_PROGRESS:
 				$statusSpan.addClass('loading-small');
 				break;
-			case Storage.Status.SUCCESS:
+			case StorageConfig.Status.SUCCESS:
 				$statusSpan.addClass('success');
 				break;
 			default:
 				$statusSpan.addClass('error');
 		}
-	}
-};
+	},
 
-$(document).ready(function() {
-	var $externalStorage = $('#externalStorage');
-
-	MountConfig.initialize($externalStorage);
-
-	//initialize hidden input field with list of users and groups
-	$externalStorage.find('tr:not(#addMountPoint)').each(function(i,tr) {
-		var $tr = $(tr);
-		var $applicable = $tr.find('.applicable');
-		if ($applicable.length > 0) {
-			var groups = $applicable.data('applicable-groups');
-			var groupsId = [];
-			$.each(groups, function () {
-				groupsId.push(this + '(group)');
-			});
-			var users = $applicable.data('applicable-users');
-			if (users.indexOf('all') > -1 || users === '') {
-				$tr.find('.applicableUsers').val('');
-			} else {
-				$tr.find('.applicableUsers').val(groupsId.concat(users).join(','));
-			}
-		}
-	});
-
-	var userListLimit = 30;
-	function addSelect2 ($elements) {
-		if ($elements.length > 0) {
-			$elements.select2({
-				placeholder: t('files_external', 'All users. Type to select user or group.'),
-				allowClear: true,
-				multiple: true,
-				//minimumInputLength: 1,
-				ajax: {
-					url: OC.generateUrl('apps/files_external/applicable'),
-					dataType: 'json',
-					quietMillis: 100,
-					data: function (term, page) { // page is the one-based page number tracked by Select2
-						return {
-							pattern: term, //search term
-							limit: userListLimit, // page size
-							offset: userListLimit*(page-1) // page number starts with 0
-						};
-					},
-					results: function (data, page) {
-						if (data.status === 'success') {
-
-							var results = [];
-							var userCount = 0; // users is an object
-
-							// add groups
-							$.each(data.groups, function(i, group) {
-								results.push({name:group+'(group)', displayname:group, type:'group' });
-							});
-							// add users
-							$.each(data.users, function(id, user) {
-								userCount++;
-								results.push({name:id, displayname:user, type:'user' });
-							});
-
-
-							var more = (userCount >= userListLimit) || (data.groups.length >= userListLimit);
-							return {results: results, more: more};
-						} else {
-							//FIXME add error handling
-						}
-					}
-				},
-				initSelection: function(element, callback) {
-					var users = {};
-					users['users'] = [];
-					var toSplit = element.val().split(",");
-					for (var i = 0; i < toSplit.length; i++) {
-						users['users'].push(toSplit[i]);
-					}
-
-					$.ajax(OC.generateUrl('displaynames'), {
-						type: 'POST',
-						contentType: 'application/json',
-						data: JSON.stringify(users),
-						dataType: 'json'
-					}).done(function(data) {
-						var results = [];
-						if (data.status === 'success') {
-							$.each(data.users, function(user, displayname) {
-								if (displayname !== false) {
-									results.push({name:user, displayname:displayname, type:'user'});
-								}
-							});
-							callback(results);
-						} else {
-							//FIXME add error handling
-						}
-					});
-				},
-				id: function(element) {
-					return element.name;
-				},
-				formatResult: function (element) {
-					var $result = $('<span><div class="avatardiv"/><span>'+escapeHTML(element.displayname)+'</span></span>');
-					var $div = $result.find('.avatardiv')
-						.attr('data-type', element.type)
-						.attr('data-name', element.name)
-						.attr('data-displayname', element.displayname);
-					if (element.type === 'group') {
-						var url = OC.imagePath('core','places/contacts-dark'); // TODO better group icon
-						$div.html('<img width="32" height="32" src="'+url+'">');
-					}
-					return $result.get(0).outerHTML;
-				},
-				formatSelection: function (element) {
-					if (element.type === 'group') {
-						return '<span title="'+escapeHTML(element.name)+'" class="group">'+escapeHTML(element.displayname+' '+t('files_external', '(group)'))+'</span>';
-					} else {
-						return '<span title="'+escapeHTML(element.name)+'" class="user">'+escapeHTML(element.displayname)+'</span>';
-					}
-				},
-				escapeMarkup: function (m) { return m; } // we escape the markup in formatResult and formatSelection
-			}).on('select2-loaded', function() {
-				$.each($('.avatardiv'), function(i, div) {
-					var $div = $(div);
-					if ($div.data('type') === 'user') {
-						$div.avatar($div.data('name'),32);
-					}
-				})
-			});
-		}
-	}
-	addSelect2($('tr:not(#addMountPoint) .applicableUsers'));
-	
-	$externalStorage.on('change', '#selectBackend', function() {
-		var $tr = $(this).closest('tr');
-		$externalStorage.find('tbody').append($tr.clone());
-		$externalStorage.find('tbody tr').last().find('.mountPoint input').val('');
-		var selected = $(this).find('option:selected').text();
-		var backendClass = $(this).val();
-		$tr.find('.backend').text(selected);
-		if ($tr.find('.mountPoint input').val() === '') {
-			$tr.find('.mountPoint input').val(suggestMountPoint(selected));
-		}
-		$tr.addClass(backendClass);
-		$tr.find('.status').append('<span></span>');
-		$tr.find('.backend').data('class', backendClass);
-		var configurations = $(this).data('configurations');
-		var $td = $tr.find('td.configuration');
-		$.each(configurations, function(backend, parameters) {
-			if (backend === backendClass) {
-				$.each(parameters['configuration'], function(parameter, placeholder) {
-					var is_optional = false;
-					if (placeholder.indexOf('&') === 0) {
-						is_optional = true;
-						placeholder = placeholder.substring(1);
-					}
-					var newElement;
-					if (placeholder.indexOf('*') === 0) {
-						var class_string = is_optional ? ' optional' : '';
-						newElement = $('<input type="password" class="added' + class_string + '" data-parameter="'+parameter+'" placeholder="'+placeholder.substring(1)+'" />');
-					} else if (placeholder.indexOf('!') === 0) {
-						newElement = $('<label><input type="checkbox" class="added" data-parameter="'+parameter+'" />'+placeholder.substring(1)+'</label>');
-					} else if (placeholder.indexOf('#') === 0) {
-						newElement = $('<input type="hidden" class="added" data-parameter="'+parameter+'" />');
-					} else {
-						var class_string = is_optional ? ' optional' : '';
-						newElement = $('<input type="text" class="added' + class_string + '" data-parameter="'+parameter+'" placeholder="'+placeholder+'" />');
-					}
-					highlightInput(newElement);
-					$td.append(newElement);
-				});
-				if (parameters['custom'] && $externalStorage.find('tbody tr.'+backendClass.replace(/\\/g, '\\\\')).length === 1) {
-					OC.addScript('files_external', parameters['custom']);
-				}
-				$td.children().not('[type=hidden]').first().focus();
-				return false;
-			}
-		});
-		$tr.find('td').last().attr('class', 'remove');
-		$tr.find('td').last().removeAttr('style');
-		$tr.removeAttr('id');
-		$(this).remove();
-		addSelect2($tr.find('.applicableUsers'));
-	});
-
-	function suggestMountPoint(defaultMountPoint) {
+	/**
+	 * Suggest mount point name that doesn't conflict with the existing names in the list
+	 *
+	 * @param {string} defaultMountPoint default name
+	 */
+	_suggestMountPoint: function(defaultMountPoint) {
+		var $el = this.$el;
 		var pos = defaultMountPoint.indexOf('/');
 		if (pos !== -1) {
 			defaultMountPoint = defaultMountPoint.substring(0, pos);
@@ -596,7 +736,7 @@ $(document).ready(function() {
 		var match = true;
 		while (match && i < 20) {
 			match = false;
-			$externalStorage.find('tbody td.mountPoint input').each(function(index, mountPoint) {
+			$el.find('tbody td.mountPoint input').each(function(index, mountPoint) {
 				if ($(mountPoint).val() === defaultMountPoint+append) {
 					match = true;
 					return false;
@@ -609,42 +749,12 @@ $(document).ready(function() {
 				break;
 			}
 		}
-		return defaultMountPoint+append;
+		return defaultMountPoint + append;
 	}
+};
 
-	$externalStorage.on('paste', 'td input', function() {
-		var $me = $(this);
-		var $tr = $me.closest('tr');
-		setTimeout(function() {
-			highlightInput($me);
-			MountConfig.saveStorage($tr);
-		}, 20);
-	});
-
-	var timer;
-
-	$externalStorage.on('keyup', 'td input', function() {
-		clearTimeout(timer);
-		var $tr = $(this).closest('tr');
-		highlightInput($(this));
-		if ($(this).val) {
-			timer = setTimeout(function() {
-				MountConfig.saveStorage($tr);
-			}, 2000);
-		}
-	});
-
-	$externalStorage.on('change', 'td input:checkbox', function() {
-		MountConfig.saveStorage($(this).closest('tr'));
-	});
-
-	$externalStorage.on('change', '.applicable', function() {
-		MountConfig.saveStorage($(this).closest('tr'));
-	});
-
-	$externalStorage.on('click', '.status>span', function() {
-		MountConfig.recheckStorage($(this).closest('tr'));
-	});
+$(document).ready(function() {
+	var mountConfigListView = new MountConfigListView($('#externalStorage'));
 
 	$('#sslCertificate').on('click', 'td.remove>img', function() {
 		var $tr = $(this).closest('tr');
@@ -653,10 +763,7 @@ $(document).ready(function() {
 		return true;
 	});
 
-	$externalStorage.on('click', 'td.remove>img', function() {
-		MountConfig.deleteStorage($(this).closest('tr'));
-	});
-
+	// TODO: move this into its own View class
 	var $allowUserMounting = $('#allowUserMounting');
 	$allowUserMounting.bind('change', function() {
 		OC.msg.startSaving('#userMountingMsg');
@@ -685,13 +792,31 @@ $(document).ready(function() {
 
 		}
 	});
+
+	// global instance
+	OCA.External.Settings.mountConfig = mountConfigListView;
+
+	/**
+	 * Legacy
+	 *
+	 * @namespace
+	 * @deprecated use OCA.External.Settings.mountConfig instead
+	 */
+	OC.MountConfig = {
+		saveStorage: _.bind(mountConfigListView.saveStorageConfig, mountConfigListView)
+	};
 });
 
 // export
-OCA.External = OCA.External || {};
 
-OCA.External.GlobalStorage = GlobalStorage;
-OCA.External.UserStorage = UserStorage;
-OCA.External.MountConfig = MountConfig;
+OCA.External = OCA.External || {};
+/**
+ * @namespace
+ */
+OCA.External.Settings = OCA.External.Settings || {};
+
+OCA.External.Settings.GlobalStorageConfig = GlobalStorageConfig;
+OCA.External.Settings.UserStorageConfig = UserStorageConfig;
+OCA.External.Settings.MountConfigListView = MountConfigListView;
 
 })();

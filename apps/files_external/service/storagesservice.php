@@ -150,9 +150,7 @@ abstract class StoragesService {
 	 *
 	 * @param array $storages map of storage id to storage config
 	 */
-	protected function writeConfig($storages) {
-		// abstract
-	}
+	abstract protected function writeConfig($storages);
 
 	/**
 	 * Get a storage with status
@@ -224,9 +222,7 @@ abstract class StoragesService {
 	 * @param StorageConfig $storage storage data
 	 * @param string $signal signal to trigger
 	 */
-	protected function triggerHooks(StorageConfig $storage, $signal) {
-		// to be implemented by subclass
-	}
+	abstract protected function triggerHooks(StorageConfig $storage, $signal);
 
 	/**
 	 * Triggers signal_create_mount or signal_delete_mount to
@@ -236,9 +232,7 @@ abstract class StoragesService {
 	 * @param StorageConfig $oldStorage old storage data
 	 * @param StorageConfig $newStorage new storage data
 	 */
-	protected function triggerChangeHooks(StorageConfig $oldStorage, StorageConfig $newStorage) {
-		// to be implemented by subclass
-	}
+	abstract protected function triggerChangeHooks(StorageConfig $oldStorage, StorageConfig $newStorage);
 
 	/**
 	 * Update storage to the configuration
