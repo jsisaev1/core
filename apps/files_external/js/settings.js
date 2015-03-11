@@ -229,12 +229,15 @@ StorageConfig.prototype = {
 	 * @return {Array} JSON array of the data
 	 */
 	getData: function() {
-		return {
-			id: this.id,
+		var data = {
 			mountPoint: this.mountPoint,
 			backendClass: this.backendClass,
 			backendOptions: this.backendOptions
 		};
+		if (this.id) {
+			data.id = this.id;
+		}
+		return data;
 	},
 
 	/**
@@ -404,6 +407,13 @@ MountConfigListView.prototype = {
 	_userListLimit: 30,
 
 	/**
+	 * List of supported backends
+	 *
+	 * @type Object.<string,Object>
+	 */
+	_allBackends: null,
+
+	/**
 	 * @param {Object} $el DOM object containing the list
 	 * @param {Object} [options]
 	 * @param {int} [options.userListLimit] page size in applicable users dropdown
@@ -420,6 +430,10 @@ MountConfigListView.prototype = {
 		if (options && !_.isUndefined(options.userListLimit)) {
 			this._userListLimit = options.userListLimit;
 		}
+
+		// read the backend config that was carefully crammed
+		// into the data-configurations attribute of the select
+		this._allBackends = this.$el.find('.selectBackend').data('configurations');
 
 		//initialize hidden input field with list of users and groups
 		this.$el.find('tr:not(#addMountPoint)').each(function(i,tr) {
@@ -507,7 +521,7 @@ MountConfigListView.prototype = {
 		$tr.addClass(backendClass);
 		$tr.find('.status').append('<span></span>');
 		$tr.find('.backend').data('class', backendClass);
-		var configurations = $target.data('configurations');
+		var configurations = this._allBackends;
 		var $td = $tr.find('td.configuration');
 		$.each(configurations, function(backend, parameters) {
 			if (backend === backendClass) {
